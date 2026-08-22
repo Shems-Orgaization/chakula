@@ -1,0 +1,283 @@
+# Chakula — System Documentation
+
+## 1. Product overview
+
+Chakula is a frontend-first Kenyan food decision app. It helps a user decide what to cook, discover familiar meals, match recipes to pantry ingredients, plan weekday meals, save favorites, build a shopping list, and enter a step-by-step cook mode.
+
+The product is intentionally lightweight: the current implementation runs in the browser with a typed in-app recipe catalogue and browser storage. It does not currently have a database, authentication, server API, shared accounts, or server-side image uploads.
+
+## 2. Technology stack
+
+- Next.js 16.3 App Router
+- React 19
+- TypeScript 5.7
+- Tailwind CSS v4 with `@tailwindcss/postcss`
+- shadcn-compatible project setup and Base UI dependency
+- Lucide React for icons
+- Vercel Analytics in production
+- pnpm package management
+
+The main runtime entry point is `app/page.tsx`, which renders the client component `FoodApp`.
+
+## 3. Repository structure
+
+```text
+app/
+  page.tsx              # Root route; renders FoodApp
+  layout.tsx            # HTML shell, fonts, metadata, viewport, analytics
+  globals.css           # Theme tokens and shared utility classes
+components/
+  food-app.tsx          # Client app state, routing, and feature views
+  sidebar.tsx           # Desktop sidebar and mobile navigation drawer
+  ui/button.tsx         # shadcn/Base UI button primitive
+lib/
+  recipes.ts            # Recipe types, catalogue, categories, lookup service
+  recommendations.ts    # Recipe matching and ranking logic
+  image-overrides.ts    # Device-local image override helpers and alt text
+  utils.ts              # Shared class-name utility
+public/images/
+  *.png                 # Generated meal-specific local images
+```
+
+## 4. Runtime architecture
+
+### App shell
+
+`FoodApp` is the single client-side application controller. It owns the current view, selected recipe, recommendation result, favorites, history, pantry, shopping list, theme, reminders, mobile drawer state, search/filter state, and custom image overrides.
+
+The shell renders:
+
+1. `Sidebar` for navigation and theme controls.
+2. A sticky top header with mobile menu, reminders, and shopping-list actions.
+3. A main content region that switches between feature views based on the `view` state.
+
+This is client-side view switching rather than URL-based routing. Navigation is represented by the `View` union type:
+
+```ts
+type View = 'home' | 'surprise' | 'browse' | 'pantry' | 'planner' | 'meals' | 'shopping'
+```
+
+Recipe detail is opened as an in-app stateful surface from a selected recipe.
+
+### Responsive behavior
+
+- Desktop/tablet: fixed 18rem sidebar and main content padding.
+- Small screens: sidebar is hidden off-canvas and opened with the menu button.
+- The menu and close controls use the `mobile-only-control` class and are hidden at `min-width: 768px`.
+- Layouts use mobile-first flex/grid utilities and responsive breakpoints for cards, detail views, and planner content.
+
+## 5. Feature modules
+
+### Home dashboard
+
+The dashboard provides the primary decision shortcuts:
+
+- Surprise Me: ranks recipes using budget, time, pantry, and meal-period preferences.
+- Explore: opens the searchable recipe catalogue.
+- Pantry matches: opens ingredient matching.
+- Quick picks: shows selected recipes.
+- Reminder controls: enable or disable morning, lunch, and evening reminders.
+
+### Explore
+
+Explore filters the typed recipe catalogue by search text and category. Each recipe card shows:
+
+- Meal image
+- Category and meal type
+- Name and description
+- Time, cost, and difficulty
+- Favorite toggle
+
+Cards open the recipe detail surface. Image rendering goes through the shared `recipeImage()` resolver so custom photos can replace defaults.
+
+### Pantry matching
+
+The user enters ingredients into a local pantry list. `matchRecipe()` compares pantry items with each recipe’s ingredients and returns matches with:
+
+- Match score
+- Ingredients already available
+- Missing ingredients
+
+The user can add missing ingredients to the shopping list.
+
+### Surprise Me
+
+The recommendation UI exposes budget, maximum cooking time, and meal type. `rankRecipes()` scores the catalogue and returns the best match with an explanation. The result can be opened, cooked, or replaced with another recommendation.
+
+### Recipe detail and Cook Mode
+
+Recipe detail presents the meal image, description, tags, cost, time, difficulty, servings, ingredients, equipment, tips, and instructions. The user can:
+
+- Favorite the recipe.
+- Add ingredients to shopping.
+- Mark the recipe as cooked.
+- Open Cook Mode.
+- Change or reset the recipe photo.
+
+Cook Mode focuses on one instruction at a time with progress and navigation controls.
+
+### Planner
+
+Planner creates a weekday menu from recipe history when available, otherwise it uses catalogue defaults. Planner cards use the same image resolver as Explore so meal/image associations remain consistent.
+
+### My Meals
+
+My Meals combines favorite recipes and recently cooked recipes. History is de-duplicated and capped by the app’s state logic.
+
+### Shopping list
+
+Cooking a recipe adds its ingredients to the shopping list. Items can be checked in the UI or removed. The list is stored locally.
+
+## 6. Recipe data model
+
+`lib/recipes.ts` defines the canonical `Recipe` type:
+
+```ts
+type Recipe = {
+  id: string
+  name: string
+  description: string
+  category: string
+  mealType: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack'
+  ingredients: Ingredient[]
+  instructions: string[]
+  prepTime: number
+  cookTime: number
+  totalTime: number
+  servings: number
+  difficulty: 'Easy' | 'Medium'
+  estimatedCost: { min: number; max: number }
+  equipment: string[]
+  image: string
+  tags: string[]
+  dietaryInfo: string[]
+  popularity: number
+}
+```
+
+The catalogue includes Kenyan and everyday meals such as Ugali & Sukuma Wiki, Beans & Rice, Ndengu & Rice, Fried Githeri, Rolex, Matoke, Omena & Ugali, Pilau, Chapati & Beans, and quick breakfast/pantry meals.
+
+Images are either meal-specific local generated assets under `public/images` or external image URLs. The three strongest corrected mappings are:
+
+- `ugali-sukuma` → `/images/ugali-sukuma.png`
+- `beans-rice` → `/images/beans-rice.png`
+- `ndengu-rice` → `/images/ndengu-rice.png`
+
+## 7. Image system
+
+`lib/image-overrides.ts` is the image customization layer.
+
+### Default images
+
+Each recipe owns a default `image` value. Local generated images are preferred where a previous external image was misleading.
+
+### Custom images
+
+On recipe detail, `Change photo` opens a browser file picker. The selected file is read with `FileReader` as a data URL and stored under the recipe ID in:
+
+```text
+food-image-overrides
+```
+
+The override is device-local. It is not uploaded, shared, backed up, or available to another browser/device. `Reset` deletes the override and restores the recipe default.
+
+### Shared resolution
+
+All image-aware surfaces should call:
+
+```ts
+recipeImage(recipe, overrides)
+```
+
+Alt text is generated with `imageAlt()`, including a custom-photo note when applicable. This prevents a user’s custom image from being silently treated as the catalogue default.
+
+## 8. Browser persistence
+
+The app uses `localStorage` for the following keys:
+
+| Key | Purpose |
+| --- | --- |
+| `food-favorites` | Favorite recipe IDs |
+| `food-history` | Recently cooked recipe IDs |
+| `food-pantry` | Pantry ingredient strings |
+| `food-shopping` | Shopping-list item strings |
+| `food-theme` | Light/dark theme preference |
+| `food-reminders` | Morning/lunch/evening reminder toggles |
+| `food-image-overrides` | Per-recipe custom image data URLs |
+
+State is loaded in a mount effect to avoid server/client hydration mismatch. After mounting, state changes are serialized back to local storage.
+
+## 9. Reminder behavior
+
+The app checks the current browser hour and selects a period:
+
+- Before 11:00 → morning
+- 11:00–15:59 → lunch
+- 16:00 onward → evening
+
+If the corresponding reminder is enabled, an in-app notice is shown. The current implementation does not implement a service worker, push subscription, email, SMS, or background notification delivery.
+
+## 10. Design system
+
+The interface uses a warm Kenyan food editorial direction:
+
+- Primary dark coffee/charcoal tone
+- Warm off-white background
+- Terracotta/orange accent
+- Muted warm neutrals
+- `DM Serif Display` for expressive headings
+- `DM Sans` for body and interface text
+
+The theme is defined with semantic CSS variables in `app/globals.css`. Components use tokens such as `bg-background`, `text-foreground`, `bg-card`, `bg-accent`, and `border-border` rather than hardcoded utility colors.
+
+The design uses rounded cards, food photography, compact eyebrow labels, large serif headings, responsive grids, focus-visible outlines, and reduced-motion support.
+
+## 11. Accessibility and UX
+
+- Semantic `header`, `main`, `nav`, `button`, `label`, and list structures are used.
+- Navigation exposes `aria-current` for the active page.
+- Mobile open/close controls include accessible labels.
+- Images include descriptive alt text where meaningful.
+- File upload is visually hidden but available through a labeled control.
+- Focus-visible states use a high-contrast accent outline.
+- Reduced-motion users receive shortened transitions and animations.
+- Buttons are keyboard operable through native button semantics.
+
+## 12. Current data and security boundaries
+
+This is a frontend-only prototype/application surface. There is no server-side trust boundary yet:
+
+- No authentication or authorization.
+- No database or shared persistence.
+- No API routes or server actions for app data.
+- No validation boundary for persisted browser data beyond defensive JSON parsing.
+- No server-side image processing or upload validation.
+
+The app should not be used to store sensitive personal data. Browser storage can be cleared by the user or browser policies, and custom image data URLs can consume significant local storage.
+
+## 13. Build and run
+
+Available scripts from `package.json`:
+
+```bash
+pnpm dev       # Start Next.js development server
+pnpm build     # Create a production build
+pnpm start     # Serve the production build
+pnpm lint      # Run ESLint
+```
+
+The project has been validated with a successful Next.js production build and browser preview checks for responsive navigation, Explore, Planner, meal images, and custom image controls.
+
+## 14. Recommended next architecture step
+
+If this becomes a production multi-user product, introduce a backend in stages:
+
+1. Add authentication and user profiles.
+2. Move recipes and user-owned state to a database.
+3. Store images in object storage and persist asset references rather than data URLs.
+4. Add server-side validation and authorization for every user-owned record.
+5. Convert view state to URL routes for deep linking and browser history.
+6. Add scheduled notifications through a server-side job or notification provider.
+7. Add observability, automated tests, and image moderation/optimization.
+
+Until those steps are implemented, the correct mental model is: a polished client-side Kenyan meal planning prototype with device-local persistence.
