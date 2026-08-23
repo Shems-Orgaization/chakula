@@ -4,7 +4,7 @@
 
 Chakula is a Kenyan food decision app. It helps an authenticated user decide what to cook, discover familiar meals, match recipes to pantry ingredients, plan weekday meals, save favorites, build a shopping list, and enter a step-by-step cook mode.
 
-The app now uses Supabase Auth, Postgres, and private Supabase Storage for authentication, synchronized user preferences, and user-owned recipe photos. Recipes remain a typed catalogue bundled with the frontend; user-owned state is loaded from and persisted to Supabase after login. Custom images are uploaded through a server route to the private `recipe-images` bucket and the returned signed URL is saved in the user preference record.
+The app now uses Supabase Auth, Postgres, and private Supabase Storage for authentication, synchronized user preferences, a database-backed recipe catalogue, reviews, feedback, sharing, dietary profiles, meal plans, and user-owned recipe photos. The client consumes published recipes through `/api/recipes`; user-owned state is loaded from and persisted to Supabase after login. Custom images are uploaded through a server route to the private `recipe-images` bucket and the returned signed URL is saved in the user preference record.
 
 ## 2. Technology stack
 
@@ -31,7 +31,8 @@ components/
   food-app.tsx          # Client app state, routing, and feature views
   sidebar.tsx           # Desktop sidebar and mobile navigation drawer
   ui/button.tsx         # shadcn/Base UI button primitive
-app/api/recipe-images/route.ts # Authenticated image upload/delete API
+  app/api/recipe-images/route.ts # Authenticated image upload/delete API
+  app/api/recipes/route.ts       # Published recipe search/filter API
 lib/
   recipes.ts            # Recipe types, catalogue, categories, lookup service
   recommendations.ts    # Recipe matching and ranking logic
