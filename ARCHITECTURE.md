@@ -4,7 +4,7 @@
 
 Chakula is a Kenyan food decision app. It helps an authenticated user decide what to cook, discover familiar meals, match recipes to pantry ingredients, plan weekday meals, save favorites, build a shopping list, and enter a step-by-step cook mode.
 
-The app now uses Supabase Auth and Postgres for authentication and synchronized user preferences. Recipes remain a typed catalogue bundled with the frontend; user-owned state is loaded from and persisted to Supabase after login. Custom images are still stored as browser data URLs for now, so image uploads are device-local rather than server-hosted.
+The app now uses Supabase Auth, Postgres, and private Supabase Storage for authentication, synchronized user preferences, and user-owned recipe photos. Recipes remain a typed catalogue bundled with the frontend; user-owned state is loaded from and persisted to Supabase after login. Custom images are uploaded through a server route to the private `recipe-images` bucket and the returned signed URL is saved in the user preference record.
 
 ## 2. Technology stack
 
@@ -31,10 +31,12 @@ components/
   food-app.tsx          # Client app state, routing, and feature views
   sidebar.tsx           # Desktop sidebar and mobile navigation drawer
   ui/button.tsx         # shadcn/Base UI button primitive
+app/api/recipe-images/route.ts # Authenticated image upload/delete API
 lib/
   recipes.ts            # Recipe types, catalogue, categories, lookup service
   recommendations.ts    # Recipe matching and ranking logic
-  image-overrides.ts    # Device-local image override helpers and alt text
+  image-overrides.ts    # Image override helpers and alt text
+  supabase/              # Browser, server, and session-refresh clients
   utils.ts              # Shared class-name utility
 public/images/
   *.png                 # Generated meal-specific local images
@@ -174,13 +176,9 @@ Each recipe owns a default `image` value. Local generated images are preferred w
 
 ### Custom images
 
-On recipe detail, `Change photo` opens a browser file picker. The selected file is read with `FileReader` as a data URL and stored under the recipe ID in:
+On recipe detail, `Change photo` opens a browser file picker. The client sends the selected image to `POST /api/recipe-images` as multipart form data. The route verifies the Supabase session, validates the recipe ID, MIME type, and 8MB size limit, uploads to the private `recipe-images` bucket under `{user_id}/{recipe_id}.{extension}`, and returns a signed URL. That URL is stored in `user_preferences.image_overrides` and used across the app. `Reset` restores the catalogue default; stored objects are private and user-scoped.
 
-```text
-food-image-overrides
-```
-
-The override is device-local. It is not uploaded, shared, backed up, or available to another browser/device. `Reset` deletes the override and restores the recipe default.
+The `SUPABASE_SERVICE_ROLE_KEY` is used only inside the server route and is never exposed to the browser. The route also creates the private bucket if it is absent, which makes development resilient when Storage setup has not completed.
 
 ### Shared resolution
 
