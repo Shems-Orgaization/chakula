@@ -2,9 +2,9 @@
 
 ## 1. Product overview
 
-Chakula is a frontend-first Kenyan food decision app. It helps a user decide what to cook, discover familiar meals, match recipes to pantry ingredients, plan weekday meals, save favorites, build a shopping list, and enter a step-by-step cook mode.
+Chakula is a Kenyan food decision app. It helps an authenticated user decide what to cook, discover familiar meals, match recipes to pantry ingredients, plan weekday meals, save favorites, build a shopping list, and enter a step-by-step cook mode.
 
-The product is intentionally lightweight: the current implementation runs in the browser with a typed in-app recipe catalogue and browser storage. It does not currently have a database, authentication, server API, shared accounts, or server-side image uploads.
+The app now uses Supabase Auth and Postgres for authentication and synchronized user preferences. Recipes remain a typed catalogue bundled with the frontend; user-owned state is loaded from and persisted to Supabase after login. Custom images are still stored as browser data URLs for now, so image uploads are device-local rather than server-hosted.
 
 ## 2. Technology stack
 
@@ -23,8 +23,9 @@ The main runtime entry point is `app/page.tsx`, which renders the client compone
 
 ```text
 app/
-  page.tsx              # Root route; renders FoodApp
-  layout.tsx            # HTML shell, fonts, metadata, viewport, analytics
+  page.tsx              # Root route; renders authenticated FoodApp
+  login/page.tsx        # Supabase email/password sign-in
+  layout.tsx             # HTML shell, fonts, metadata, viewport, analytics
   globals.css           # Theme tokens and shared utility classes
 components/
   food-app.tsx          # Client app state, routing, and feature views
@@ -243,17 +244,40 @@ The design uses rounded cards, food photography, compact eyebrow labels, large s
 - Reduced-motion users receive shortened transitions and animations.
 - Buttons are keyboard operable through native button semantics.
 
-## 12. Current data and security boundaries
+## 12. Supabase backend and authentication
 
-This is a frontend-only prototype/application surface. There is no server-side trust boundary yet:
+Supabase is the backend boundary for identity and user-owned application state.
 
-- No authentication or authorization.
-- No database or shared persistence.
-- No API routes or server actions for app data.
-- No validation boundary for persisted browser data beyond defensive JSON parsing.
-- No server-side image processing or upload validation.
+### Authentication
 
-The app should not be used to store sensitive personal data. Browser storage can be cleared by the user or browser policies, and custom image data URLs can consume significant local storage.
+- `lib/supabase/client.ts` creates the browser client using the project URL and publishable/anon key.
+- `lib/supabase/server.ts` creates the server client using request cookies.
+- `lib/supabase/proxy.ts` refreshes Supabase sessions; the root `proxy.ts` delegates to it.
+- `/login` uses email/password authentication with `signInWithPassword()` and redirects authenticated users to `/`.
+- The root `FoodApp` checks `auth.getUser()` on mount and redirects unauthenticated visitors to `/login`.
+- The approved development account was created and email-confirmed in Supabase Auth: `shemmcollins@gmal.com`. Its password is intentionally not documented in source control.
+
+### Database schema
+
+The migration `create_chakula_user_data` creates:
+
+- `public.profiles`: one profile per auth user, linked to `auth.users(id)` with cascade deletion.
+- `public.user_preferences`: one row per user containing favorites, cooking history, pantry, shopping list, reminders, image overrides, and `updated_at`.
+- `public.user_meal_plans`: user-owned dated recipe plan rows with a unique `(user_id, plan_date)` constraint.
+
+A database trigger creates the profile and default preferences row whenever a new Supabase Auth user is created.
+
+### Security model
+
+All three public tables have Row Level Security enabled. Policies restrict reads and writes to rows where `auth.uid()` equals the row owner (`profiles.id` or `user_preferences.user_id` / `user_meal_plans.user_id`). The service-role key is used only for one-time development provisioning and is never imported into browser code. Runtime browser access uses the publishable/anon key and Supabase session cookies, with RLS enforcing ownership.
+
+### Data synchronization
+
+After authentication, `FoodApp` loads `user_preferences` for the current user. Any changes to favorites, history, pantry, shopping, reminders, or image overrides are upserted back to that user’s preference row. This gives the app cross-session and cross-device synchronization for structured preferences. The bundled recipe catalogue remains read-only application data.
+
+Custom recipe images remain data URLs in the preference JSON and are not uploaded to Supabase Storage yet. They can become large; the production follow-up is to add Storage with per-user object paths and Storage RLS policies.
+
+The app now has a server-side trust boundary for authentication and preference persistence, but it should still avoid storing sensitive personal data in recipe preferences.
 
 ## 13. Build and run
 
@@ -268,16 +292,15 @@ pnpm lint      # Run ESLint
 
 The project has been validated with a successful Next.js production build and browser preview checks for responsive navigation, Explore, Planner, meal images, and custom image controls.
 
-## 14. Recommended next architecture step
+## 14. Remaining production roadmap
 
-If this becomes a production multi-user product, introduce a backend in stages:
+The core authentication and preference backend is now connected. Recommended next steps are:
 
-1. Add authentication and user profiles.
-2. Move recipes and user-owned state to a database.
-3. Store images in object storage and persist asset references rather than data URLs.
-4. Add server-side validation and authorization for every user-owned record.
-5. Convert view state to URL routes for deep linking and browser history.
-6. Add scheduled notifications through a server-side job or notification provider.
-7. Add observability, automated tests, and image moderation/optimization.
+1. Persist Planner changes through `user_meal_plans` instead of deriving the menu only from local history.
+2. Move custom images to Supabase Storage with per-user paths, size/type validation, and Storage RLS.
+3. Add password reset, account settings, and optional sign-up through a controlled flow.
+4. Convert in-app view state to URL routes for deep linking and browser history.
+5. Add scheduled notifications through a server-side job or notification provider.
+6. Add observability, automated tests, rate limiting, and error reporting.
 
-Until those steps are implemented, the correct mental model is: a polished client-side Kenyan meal planning prototype with device-local persistence.
+Current mental model: an authenticated, multi-session Kenyan meal planning app. Recipes are bundled read-only content; identity and structured user preferences are stored securely in Supabase; custom image binary data remains device-local until Storage is added.
