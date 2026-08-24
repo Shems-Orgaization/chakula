@@ -27,18 +27,25 @@ app/
   login/page.tsx        # Supabase email/password sign-in
   layout.tsx             # HTML shell, fonts, metadata, viewport, analytics
   globals.css           # Theme tokens and shared utility classes
-components/
-  food-app.tsx          # Client app state, routing, and feature views
-  sidebar.tsx           # Desktop sidebar and mobile navigation drawer
-  ui/button.tsx         # shadcn/Base UI button primitive
-  app/api/recipe-images/route.ts # Authenticated image upload/delete API
-  app/api/recipes/route.ts       # Published recipe search/filter API
-lib/
-  recipes.ts            # Recipe types, catalogue, categories, lookup service
-  recommendations.ts    # Recipe matching and ranking logic
-  image-overrides.ts    # Image override helpers and alt text
-  supabase/              # Browser, server, and session-refresh clients
-  utils.ts              # Shared class-name utility
+  components/
+    food-app.tsx         # Current client composition/controller (legacy view shell)
+    sidebar.tsx          # Desktop sidebar and mobile navigation drawer
+    ui/button.tsx        # shadcn/Base UI button primitive
+  app/api/
+    recipe-images/route.ts # Authenticated image upload/delete API
+    recipes/route.ts       # Published recipe search/filter API
+    pantry/route.ts        # Authenticated pantry CRUD API
+    shopping/route.ts      # Authenticated shopping CRUD API
+    preferences/route.ts   # Authenticated preference synchronization API
+    plans/route.ts         # Meal plan API
+    reviews/route.ts       # Recipe review API
+    shared-plans/route.ts  # Shared-plan API
+  lib/
+    recipes.ts             # Recipe types, database mapping, and compatibility helpers
+    recommendations.ts    # Recipe matching and ranking logic
+    image-overrides.ts     # Image resolver and Storage reference helpers
+    supabase/              # Browser, server, and session-refresh clients
+    utils.ts               # Shared class-name utility
 public/images/
   *.png                 # Generated meal-specific local images
 ```
@@ -122,7 +129,7 @@ Cook Mode focuses on one instruction at a time with progress and navigation cont
 
 ### Planner
 
-Planner creates a weekday menu from recipe history when available, otherwise it uses catalogue defaults. Planner cards use the same image resolver as Explore so meal/image associations remain consistent.
+Planner is backed by the `user_meal_plans` table and the `/api/plans` route. The current UI still presents a compact weekday surface while the backend supports dated, user-owned plan records; catalogue defaults are only used for empty-state suggestions and are not written as user data. Planner cards use the same image resolver as Explore so meal/image associations remain consistent.
 
 ### My Meals
 
@@ -191,21 +198,20 @@ recipeImage(recipe, overrides)
 
 Alt text is generated with `imageAlt()`, including a custom-photo note when applicable. This prevents a user’s custom image from being silently treated as the catalogue default.
 
-## 8. Browser persistence
+## 8. Persistence and synchronization
 
-The app uses `localStorage` for the following keys:
+Supabase is the source of truth for authenticated user data. The current client shell hydrates preferences through `/api/preferences` and synchronizes changes after authentication. Normalized APIs are available for pantry and shopping records, while the remaining shell state is being migrated from the legacy JSON preference row into dedicated tables.
 
-| Key | Purpose |
-| --- | --- |
-| `food-favorites` | Favorite recipe IDs |
-| `food-history` | Recently cooked recipe IDs |
-| `food-pantry` | Pantry ingredient strings |
-| `food-shopping` | Shopping-list item strings |
-| `food-theme` | Light/dark theme preference |
-| `food-reminders` | Morning/lunch/evening reminder toggles |
-| `food-image-overrides` | Per-recipe custom image data URLs |
+| Data | Current backend location | Direction |
+| --- | --- | --- |
+| Theme and reminders | `user_preferences` | API-backed |
+| Favorites | `user_favorite_recipes` and compatibility preference fields | API-backed migration |
+| Pantry | `user_pantry_items` and compatibility preference fields | API-backed migration |
+| Shopping | `user_shopping_items` and compatibility preference fields | API-backed migration |
+| Cooking history | `user_recipe_history` and compatibility preference fields | API-backed migration |
+| Custom image references | `user_preferences.image_overrides` | API-backed; Storage objects remain private |
 
-State is loaded in a mount effect to avoid server/client hydration mismatch. After mounting, state changes are serialized back to local storage.
+`localStorage` is not a persistence boundary. Any browser storage used for theme bootstrapping or hydration fallback is treated as a temporary compatibility cache and must not be relied upon for user data.
 
 ## 9. Reminder behavior
 
@@ -254,7 +260,14 @@ Supabase is the backend boundary for identity and user-owned application state.
 - `lib/supabase/proxy.ts` refreshes Supabase sessions; the root `proxy.ts` delegates to it.
 - `/login` uses email/password authentication with `signInWithPassword()` and redirects authenticated users to `/`.
 - The root `FoodApp` checks `auth.getUser()` on mount and redirects unauthenticated visitors to `/login`.
-- The approved development account was created and email-confirmed in Supabase Auth: `shemmcollins@gmal.com`. Its password is intentionally not documented in source control.
+- The approved account is email-confirmed in Supabase Auth: `shemmcollins@gmail.com`. It is promoted to admin through server-managed `raw_app_meta_data.role = 'admin'`; its password is intentionally not documented in source control.
+- Registration, login, email confirmation, password recovery, and reset are real Supabase Auth flows. No demo credentials or client-only accounts are used.
+
+### Admin workspace
+
+- `/admin` is protected by both the page APIs and `requireAdmin()`, which reads the server-managed `app_metadata` role. Client metadata is never trusted for authorization.
+- Admins can create, edit, publish/unpublish, and delete recipes in the database, and view registered user email/confirmation/role status. This keeps the catalogue maintainable without code deployments and gives the team visibility into account health.
+- A newly promoted admin must sign out and sign back in so the refreshed Supabase JWT carries the new app metadata claim. The admin API uses the server-only service key only after this authorization check.
 
 ### Database schema
 
@@ -276,7 +289,7 @@ After authentication, `FoodApp` loads `user_preferences` for the current user. A
 
 Custom recipe images remain data URLs in the preference JSON and are not uploaded to Supabase Storage yet. They can become large; the production follow-up is to add Storage with per-user object paths and Storage RLS policies.
 
-The app now has a server-side trust boundary for authentication and preference persistence, but it should still avoid storing sensitive personal data in recipe preferences.
+The app now has a server-side trust boundary for authentication, preference persistence, normalized user data APIs, and private image uploads. Signed URLs are runtime delivery artifacts; the durable reference should be a Storage object path so URLs can be regenerated when they expire. The current compatibility field may contain returned URLs from earlier versions and should be migrated to object paths during the image-system cleanup.
 
 ## 13. Build and run
 
