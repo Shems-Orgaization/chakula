@@ -260,7 +260,14 @@ Supabase is the backend boundary for identity and user-owned application state.
 - `lib/supabase/proxy.ts` refreshes Supabase sessions; the root `proxy.ts` delegates to it.
 - `/login` uses email/password authentication with `signInWithPassword()` and redirects authenticated users to `/`.
 - The root `FoodApp` checks `auth.getUser()` on mount and redirects unauthenticated visitors to `/login`.
-- The approved development account is email-confirmed in Supabase Auth: `shemmcollins@gmail.com`. This is a normal user account; no admin role is assigned unless `raw_app_meta_data` contains an explicit server-managed role. Its password is intentionally not documented in source control.
+- The approved account is email-confirmed in Supabase Auth: `shemmcollins@gmail.com`. It is promoted to admin through server-managed `raw_app_meta_data.role = 'admin'`; its password is intentionally not documented in source control.
+- Registration, login, email confirmation, password recovery, and reset are real Supabase Auth flows. No demo credentials or client-only accounts are used.
+
+### Admin workspace
+
+- `/admin` is protected by both the page APIs and `requireAdmin()`, which reads the server-managed `app_metadata` role. Client metadata is never trusted for authorization.
+- Admins can create, edit, publish/unpublish, and delete recipes in the database, and view registered user email/confirmation/role status. This keeps the catalogue maintainable without code deployments and gives the team visibility into account health.
+- A newly promoted admin must sign out and sign back in so the refreshed Supabase JWT carries the new app metadata claim. The admin API uses the server-only service key only after this authorization check.
 
 ### Database schema
 
