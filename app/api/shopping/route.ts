@@ -38,9 +38,13 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const { supabase, user } = await context()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const id = new URL(request.url).searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 })
-  const { error } = await supabase.from('user_shopping_items').delete().eq('id', id).eq('user_id', user.id)
+  const params = new URL(request.url).searchParams
+  const id = params.get('id')
+  const ingredientName = params.get('ingredient_name')
+  if (!id && !ingredientName) return NextResponse.json({ error: 'id or ingredient_name is required.' }, { status: 400 })
+  let query = supabase.from('user_shopping_items').delete().eq('user_id', user.id)
+  query = id ? query.eq('id', id) : query.eq('ingredient_name', ingredientName!.trim())
+  const { error } = await query
   if (error) return NextResponse.json({ error: 'Unable to delete shopping item.' }, { status: 500 })
   return new NextResponse(null, { status: 204 })
 }

@@ -1,6 +1,6 @@
 'use client'
 import { CalendarDays, Home, Moon, Search, ShoppingBasket, Sparkles, Sun, UtensilsCrossed, X } from 'lucide-react'
-export type View = 'home' | 'surprise' | 'browse' | 'pantry' | 'planner' | 'meals' | 'shopping'
+export type View = 'home' | 'surprise' | 'browse' | 'pantry' | 'planner' | 'meals' | 'shopping' | 'detail'
 export function Sidebar({ active, onNavigate, dark, onToggleTheme, mobileOpen, onClose }: { active: View; onNavigate: (view: View) => void; dark: boolean; onToggleTheme: () => void; mobileOpen?: boolean; onClose?: () => void }) {
  const items = [['home','Home',Home],['browse','Explore',Search],['planner','Planner',CalendarDays],['shopping','Shopping',ShoppingBasket],['meals','My Meals',UtensilsCrossed]] as const
  return <><div className={`fixed inset-0 z-40 bg-foreground/20 md:hidden ${mobileOpen ? 'block' : 'hidden'}`} onClick={onClose} aria-hidden="true" /><aside className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-border bg-card p-5 shadow-xl transition-transform md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>

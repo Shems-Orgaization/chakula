@@ -7,6 +7,7 @@ export function AssistantPage() {
   const [answer, setAnswer] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [history, setHistory] = useState<Array<{ question: string; answer: string }>>([])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -17,7 +18,7 @@ export function AssistantPage() {
     const response = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) setError(payload.error || 'The assistant could not respond.')
-    else setAnswer(payload.answer || '')
+    else { const nextAnswer = payload.answer || ''; setAnswer(nextAnswer); setHistory((items) => [{ question: message.trim(), answer: nextAnswer }, ...items].slice(0, 5)) }
     setLoading(false)
   }
 

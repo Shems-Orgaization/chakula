@@ -103,7 +103,7 @@ Cards open the recipe detail surface. Image rendering goes through the shared `r
 
 ### Pantry matching
 
-The user enters ingredients into a local pantry list. `matchRecipe()` compares pantry items with each recipe’s ingredients and returns matches with:
+The user enters ingredients into the authenticated `user_pantry_items` list through `/api/pantry`. `matchRecipe()` compares pantry items with each published recipe’s ingredients and returns matches with:
 
 - Match score
 - Ingredients already available
