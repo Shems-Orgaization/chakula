@@ -97,10 +97,6 @@ export default function LoginPage() {
             Create account
           </Link>
         </div>
-        <p className="mt-5 text-xs leading-5 text-muted-foreground">
-          Your account is secured by Supabase Auth. Credentials are never stored
-          in the frontend.
-        </p>
       </form>
     </main>
   );
