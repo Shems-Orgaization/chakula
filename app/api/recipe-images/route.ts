@@ -16,6 +16,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid image upload' }, { status: 400 })
   }
   if (file.size > 8 * 1024 * 1024) return NextResponse.json({ error: 'Image must be 8MB or smaller' }, { status: 413 })
+  const { data: recipe } = await supabase.from('recipes').select('id').eq('id', recipeId).maybeSingle()
+  if (!recipe) return NextResponse.json({ error: 'Recipe not found' }, { status: 404 })
 
   const admin = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
