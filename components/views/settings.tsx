@@ -53,8 +53,7 @@ const mealPeriods: MealPeriod[] = [
   { id: "evening", label: "Evening", icon: Sunset, description: "After 4pm" },
 ];
 
-// ===== MAIN COMPONENT =====
-export default function SettingsPage() {
+export function SettingsComponent() {
   const router = useRouter();
   const supabase = createClient();
 
@@ -70,10 +69,8 @@ export default function SettingsPage() {
   const [reminders, setReminders] = useState({ morning: true, lunch: true, evening: true });
 
   useEffect(() => {
-    // Load theme
     const isDark = document.documentElement.classList.contains("dark");
     setDark(isDark);
-
     loadSettings();
   }, []);
 
@@ -151,24 +148,27 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <button className="back-button flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8 group" onClick={() => router.push("/")}>
-        <span className="transition-transform group-hover:-translate-x-1">←</span> Back to dashboard
-      </button>
+    <div className="flex flex-col gap-8">
+      <div>
+        <p className="eyebrow text-accent">Preferences</p>
+        <h1 className="section-title mt-3">Make Chakula fit your table.</h1>
+        <p className="mt-3 max-w-2xl leading-7 text-muted-foreground">
+          Adjust your dietary preferences, allergies, and reminders.
+        </p>
+      </div>
 
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow text-accent">Preferences</p>
-          <h1 className="section-title mt-2">Make Chakula fit your table.</h1>
-        </div>
-        <button onClick={saveSettings} disabled={saving} className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60">
+      <div className="flex justify-end">
+        <button
+          onClick={saveSettings}
+          disabled={saving}
+          className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60"
+        >
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
           {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
         </button>
       </div>
 
       <div className="grid gap-5">
-        {/* Theme */}
         <SettingSection icon={dark ? Moon : Sun} title="Theme" description="This stays saved on this device until you change it again.">
           <button onClick={toggleTheme} className="filter-pill filter-pill-active inline-flex w-fit items-center gap-2">
             {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
@@ -176,7 +176,6 @@ export default function SettingsPage() {
           </button>
         </SettingSection>
 
-        {/* Dietary */}
         <SettingSection icon={Apple} title="Dietary preferences" description="Select anything that applies to you, or add your own.">
           <EditableChipGroup
             options={dietaryOptions}
@@ -188,7 +187,6 @@ export default function SettingsPage() {
           />
         </SettingSection>
 
-        {/* Allergies */}
         <SettingSection icon={AlertCircle} title="Allergies & restrictions" description="We'll flag recipes that contain these.">
           <EditableChipGroup
             warn
@@ -201,7 +199,6 @@ export default function SettingsPage() {
           />
         </SettingSection>
 
-        {/* Meal Types */}
         <SettingSection icon={UtensilsCrossed} title="Preferred meal types" description="Tell us what you reach for most, or add your own.">
           <EditableChipGroup
             options={mealTypeOptions}
@@ -213,7 +210,6 @@ export default function SettingsPage() {
           />
         </SettingSection>
 
-        {/* Reminders */}
         <SettingSection icon={Bell} title="Meal reminders" description="A gentle nudge at the right time of day.">
           <div className="flex flex-col gap-3">
             {mealPeriods.map((period) => (
@@ -241,7 +237,6 @@ export default function SettingsPage() {
   );
 }
 
-// ===== SUB-COMPONENTS =====
 function SettingSection({ icon: Icon, title, description, children }: any) {
   return (
     <div className="panel p-6 sm:p-8 rounded-2xl border border-border/60 bg-card">

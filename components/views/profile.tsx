@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
-  ArrowLeft,
   Save,
   Mail,
   Calendar,
@@ -12,6 +11,7 @@ import {
   UtensilsCrossed,
   ShoppingBag,
   Loader2,
+  ArrowLeft,
 } from "lucide-react";
 
 function initialsFrom(name: string, email: string) {
@@ -21,8 +21,7 @@ function initialsFrom(name: string, email: string) {
   return letters.join("") || "C";
 }
 
-// ===== MAIN COMPONENT =====
-export default function ProfilePage() {
+export function ProfileComponent() {
   const router = useRouter();
   const supabase = createClient();
 
@@ -121,15 +120,13 @@ export default function ProfilePage() {
     : null;
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <button className="back-button flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-8 group" onClick={() => router.push("/")}>
-        <span className="transition-transform group-hover:-translate-x-1">←</span> Back to dashboard
-      </button>
-
-      <div className="mb-8">
+    <div className="flex flex-col gap-8">
+      <div>
         <p className="eyebrow text-accent">Your account</p>
-        <h1 className="section-title mt-2">Karibu, {displayName || "friend"}.</h1>
-        <p className="mt-2 text-muted-foreground">This is where your Chakula details live.</p>
+        <h1 className="section-title mt-3">Karibu, {displayName || "friend"}.</h1>
+        <p className="mt-3 max-w-2xl leading-7 text-muted-foreground">
+          This is where your Chakula details live.
+        </p>
       </div>
 
       <div className="panel flex flex-col gap-6 p-6 sm:p-8 rounded-2xl border border-border/60 bg-card">
@@ -157,7 +154,11 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
-          <button onClick={saveProfile} disabled={saving} className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60">
+          <button
+            onClick={saveProfile}
+            disabled={saving}
+            className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60"
+          >
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
             {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
           </button>
@@ -174,7 +175,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         <QuickLink onClick={() => router.push("/settings")} title="Settings" text="Dietary preferences, allergies & reminders" />
         <QuickLink onClick={() => router.push("/meals")} title="My meals" text="Everything you've saved and cooked" />
       </div>
@@ -182,7 +183,6 @@ export default function ProfilePage() {
   );
 }
 
-// ===== SUB-COMPONENTS =====
 function StatCard({ icon: Icon, label, value }: any) {
   return (
     <div className="rounded-2xl bg-secondary p-4 text-center">

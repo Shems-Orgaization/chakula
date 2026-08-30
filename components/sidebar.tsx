@@ -1,3 +1,4 @@
+// components/sidebar.tsx
 "use client";
 
 import {
@@ -13,22 +14,13 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-
-export type View =
-  | "home"
-  | "surprise"
-  | "browse"
-  | "pantry"
-  | "planner"
-  | "meals"
-  | "shopping"
-  | "detail"
-  | "profile"
-  | "settings";
+import { View } from "@/lib/types";
 
 export function Sidebar({
   active,
@@ -37,6 +29,8 @@ export function Sidebar({
   onClose,
   userEmail,
   userName,
+  dark = false,
+  onToggleTheme,
 }: {
   active: View;
   onNavigate: (view: View) => void;
@@ -44,12 +38,13 @@ export function Sidebar({
   onClose?: () => void;
   userEmail?: string;
   userName?: string;
+  dark?: boolean;
+  onToggleTheme?: () => void;
 }) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
-  // Load collapsed state from sessionStorage
   useEffect(() => {
     const saved = sessionStorage.getItem("sidebar-collapsed");
     if (saved !== null) {
@@ -57,7 +52,6 @@ export function Sidebar({
     }
   }, []);
 
-  // Save collapsed state to sessionStorage
   const toggleCollapse = () => {
     const newState = !collapsed;
     setCollapsed(newState);
@@ -130,7 +124,6 @@ export function Sidebar({
               )}
             </button>
 
-            {/* Collapse toggle - desktop only */}
             <button
               onClick={toggleCollapse}
               className="hidden md:flex rounded-lg p-1.5 hover:bg-secondary transition-colors text-muted-foreground"
@@ -139,7 +132,6 @@ export function Sidebar({
               {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
             </button>
 
-            {/* Mobile close */}
             <button
               className="md:hidden rounded-lg p-2 hover:bg-secondary transition-colors"
               onClick={onClose}
@@ -150,7 +142,7 @@ export function Sidebar({
           </div>
         </div>
 
-        {/* User profile - FULL when expanded */}
+        {/* User profile */}
         {!collapsed && (
           <div className="mx-3 mt-3 rounded-xl bg-gradient-to-br from-secondary/80 to-secondary/40 p-3 border border-border/50">
             <div className="flex items-center gap-3">
@@ -169,7 +161,6 @@ export function Sidebar({
           </div>
         )}
 
-        {/* User avatar ONLY when collapsed */}
         {collapsed && (
           <div className="mx-auto mt-3">
             <div className="flex size-10 items-center justify-center rounded-full bg-accent/20 text-accent">
@@ -202,10 +193,8 @@ export function Sidebar({
             ))}
           </div>
 
-          {/* Divider */}
           <div className="my-3 border-t border-border/60" />
 
-          {/* Profile & Settings */}
           <div className="space-y-1">
             <button
               onClick={() => {
@@ -244,6 +233,19 @@ export function Sidebar({
 
         {/* Footer */}
         <div className={`border-t border-border/60 px-2 py-3 space-y-1.5 ${collapsed ? "px-1" : ""}`}>
+          {onToggleTheme && (
+            <button
+              onClick={onToggleTheme}
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-all hover:bg-secondary ${
+                collapsed ? "justify-center px-2" : ""
+              }`}
+              title={collapsed ? (dark ? "Light mode" : "Dark mode") : undefined}
+            >
+              {dark ? <Sun className="size-5 shrink-0" /> : <Moon className="size-5 shrink-0" />}
+              {!collapsed && (dark ? "Light mode" : "Dark mode")}
+            </button>
+          )}
+
           <button
             onClick={() => {
               onNavigate("surprise");
