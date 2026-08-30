@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
+import { read } from "@/lib/storage";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +14,13 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // ✅ Safe theme loader – uses read() which catches JSON.parse errors
+  useEffect(() => {
+    const theme = read<string>("food-theme", "light");
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, []);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -26,13 +34,14 @@ export default function LoginPage() {
       setError(
         error.message.toLowerCase().includes("confirm")
           ? "Please confirm your email before signing in."
-          : "Invalid email or password.",
+          : "Invalid email or password."
       );
       return;
     }
     router.replace("/");
     router.refresh();
   }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5">
       <form onSubmit={submit} className="panel w-full max-w-md">
