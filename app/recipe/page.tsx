@@ -8,10 +8,5 @@ export default function RecipePage() {
   const params = useParams();
   const id = params.id as string;
 
-  return (
-    <FoodApp
-      initialView="detail"
-      {...({ selectedId: id } as any)}
-    />
-  );
+  return <FoodApp initialView="detail" selectedId={id} />;
 }

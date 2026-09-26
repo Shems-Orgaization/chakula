@@ -2,7 +2,7 @@
 "use client";
 
 import useSWR from "swr";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, X } from "lucide-react";
 
@@ -35,6 +35,15 @@ const store = {
   reminders: "food-reminders",
 };
 
+interface RecipesResponse {
+  recipes: Recipe[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+  nextPage: number | null;
+}
+
 const fetcher = (url: string) =>
   fetch(url).then((response) => {
     if (!response.ok) throw new Error("Unable to load recipes");
@@ -50,12 +59,45 @@ export function FoodApp({
 }) {
   const router = useRouter();
 
+  // ----- PAGINATION STATE -----
+  const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(1);
+  const [allRecipes, setAllRecipes] = useState<Recipe[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // ----- DATA -----
-  const { data: catalogResponse } = useSWR<{ recipes: Recipe[] }>(
-    "/api/recipes?limit=100",
-    fetcher
+  const { data: catalogResponse } = useSWR<RecipesResponse>(
+    `/api/recipes?page=${page}&limit=50${showAll ? "&includeAll=true" : ""}`,
+    fetcher,
+    { revalidateOnFocus: false }
   );
-  const catalog = catalogResponse?.recipes ?? [];
+
+  useEffect(() => {
+    if (catalogResponse?.recipes) {
+      if (page === 1) {
+        setAllRecipes(catalogResponse.recipes);
+      } else {
+        setAllRecipes((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id));
+          const newRecipes = catalogResponse.recipes.filter(
+            (r) => !existingIds.has(r.id)
+          );
+          return [...prev, ...newRecipes];
+        });
+      }
+      setHasMore(catalogResponse.hasMore);
+    }
+  }, [catalogResponse, page]);
+
+  useEffect(() => {
+    setPage(1);
+    setAllRecipes([]);
+    setHasMore(true);
+    setCategory("All");
+  }, [showAll]);
+
+  const catalog = allRecipes;
 
   // ----- USER -----
   const [userId, setUserId] = useState<string | null>(null);
@@ -89,7 +131,22 @@ export function FoodApp({
   // ----- SIDEBAR STATE -----
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // ----- LOAD SIDEBAR STATE -----
+  // ----- REMINDER FIRING (session dedup) -----
+  const firedReminders = useRef<Set<string>>(new Set());
+
+  // ----- LOAD MORE -----
+  const loadMore = useCallback(() => {
+    if (!hasMore || isLoadingMore) return;
+    setIsLoadingMore(true);
+    setPage((p) => p + 1);
+  }, [hasMore, isLoadingMore]);
+
+  useEffect(() => {
+    if (catalogResponse) {
+      setIsLoadingMore(false);
+    }
+  }, [catalogResponse]);
+
   useEffect(() => {
     const saved = sessionStorage.getItem("sidebar-collapsed");
     if (saved !== null) {
@@ -122,18 +179,25 @@ export function FoodApp({
       setPantry(prefs?.pantry ?? read(store.pantry, []));
 
       const shoppingResponse = await fetch("/api/shopping");
-      const shoppingPayload = shoppingResponse.ok ? await shoppingResponse.json() : null;
+      const shoppingPayload = shoppingResponse.ok
+        ? await shoppingResponse.json()
+        : null;
       setShopping(
-        shoppingPayload?.items?.map((item: { ingredient_name: string }) => item.ingredient_name) ??
+        shoppingPayload?.items?.map(
+          (item: { ingredient_name: string }) => item.ingredient_name
+        ) ??
           prefs?.shopping ??
           read(store.shopping, [])
       );
 
       setDark(read<string>(store.theme, "light") === "dark");
       setReminders(
-        prefs?.reminders ?? read(store.reminders, { morning: true, lunch: true, evening: true })
+        prefs?.reminders ??
+          read(store.reminders, { morning: true, lunch: true, evening: true })
       );
-      setImageOverrides(prefs?.image_overrides ?? read(imageOverrideStorageKey, {}));
+      setImageOverrides(
+        prefs?.image_overrides ?? read(imageOverrideStorageKey, {})
+      );
 
       setMounted(true);
     })();
@@ -159,30 +223,173 @@ export function FoodApp({
         image_overrides: imageOverrides,
       }),
     });
-  }, [favorites, history, pantry, shopping, dark, reminders, imageOverrides, mounted, userId]);
+  }, [
+    favorites,
+    history,
+    pantry,
+    shopping,
+    dark,
+    reminders,
+    imageOverrides,
+    mounted,
+    userId,
+  ]);
 
-  // ----- REMINDERS -----
+  // ============================================================
+  // ✅ REMINDER FIRING HOOK
+  // ============================================================
   useEffect(() => {
-    const hour = new Date().getHours();
-    const period = hour < 11 ? "morning" : hour < 16 ? "lunch" : "evening";
-    if (!reminders[period as keyof typeof reminders] || !mounted) return;
-    setNotice(`${period[0].toUpperCase() + period.slice(1)} food o'clock — try something chap chap?`);
-    const timeout = window.setTimeout(() => setNotice(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [mounted, reminders]);
+    if (!mounted || !userId) return;
 
-  // ----- LOAD SELECTED RECIPE (for direct detail page) -----
-  useEffect(() => {
-    if (initialView === "detail" && selectedId && catalog.length > 0) {
-      const found = catalog.find((r) => r.id === selectedId);
-      if (found) {
-        setSelected(found);
-        setView("detail");
-      } else {
-        // If not found in catalog, redirect to browse
-        setView("browse");
-        router.push("/explore");
+    let cancelled = false;
+
+    const checkReminders = async () => {
+      try {
+        const res = await fetch("/api/reminders");
+        if (!res.ok) return;
+        const data = await res.json();
+        const settings = data.settings ?? [];
+        const history = data.history ?? [];
+
+        if (cancelled) return;
+
+        const now = new Date();
+        const today = now.getDay() === 0 ? 7 : now.getDay();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const todayStr = now.toISOString().split("T")[0];
+
+        for (const setting of settings) {
+          if (!setting.enabled) continue;
+          if (!setting.days_of_week?.includes(today)) continue;
+
+          const quietStart = setting.quiet_hours_start || "22:00";
+          const quietEnd = setting.quiet_hours_end || "06:00";
+          const [qsh, qsm] = quietStart.split(":").map(Number);
+          const [qeh, qem] = quietEnd.split(":").map(Number);
+          const quietStartMin = qsh * 60 + qsm;
+          const quietEndMin = qeh * 60 + qem;
+
+          const inQuietHours =
+            quietStartMin > quietEndMin
+              ? currentMinutes >= quietStartMin || currentMinutes < quietEndMin
+              : currentMinutes >= quietStartMin && currentMinutes < quietEndMin;
+
+          if (inQuietHours) continue;
+
+          const fireKey = `${setting.meal_type}-${todayStr}`;
+          if (firedReminders.current.has(fireKey)) continue;
+
+          const alreadyFiredDB = history.some(
+            (h: any) =>
+              h.meal_type === setting.meal_type &&
+              new Date(h.fired_at).toDateString() === now.toDateString()
+          );
+          if (alreadyFiredDB) {
+            firedReminders.current.add(fireKey);
+            continue;
+          }
+
+          const [rh, rm] = (setting.reminder_time || "08:00")
+            .split(":")
+            .map(Number);
+          const reminderMinutes = rh * 60 + rm;
+          const isTimeForReminder =
+            currentMinutes >= reminderMinutes &&
+            currentMinutes < reminderMinutes + 2;
+
+          if (!isTimeForReminder) continue;
+
+          const title =
+            setting.meal_type === "morning"
+              ? "Good morning!"
+              : setting.meal_type === "lunch"
+              ? "Lunch time"
+              : "Dinner time";
+
+          const message =
+            setting.meal_type === "morning"
+              ? "What's for breakfast today?"
+              : setting.meal_type === "lunch"
+              ? "What's for lunch today?"
+              : "Plan your dinner tonight";
+
+          setNotice(`🔔 ${title} — ${message}`);
+
+          if (typeof window !== "undefined") {
+            const soundEnabled =
+              localStorage.getItem("reminder-sound") !== "off";
+            if (soundEnabled) {
+              try {
+                const audio = new Audio(
+                  "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT"
+                );
+                audio.volume = 0.3;
+                audio.play().catch(() => {});
+              } catch {}
+            }
+          }
+
+          firedReminders.current.add(fireKey);
+
+          try {
+            await fetch("/api/reminder-history", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                meal_type: setting.meal_type,
+                title,
+                message,
+              }),
+            });
+          } catch {}
+
+          setTimeout(() => setNotice(null), 8000);
+        }
+      } catch (err) {
+        console.error("Reminder check failed:", err);
       }
+    };
+
+    checkReminders();
+    const interval = setInterval(checkReminders, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [mounted, userId]);
+
+  // ----- LOAD SELECTED RECIPE -----
+  useEffect(() => {
+    async function loadRecipe() {
+      if (initialView === "detail" && selectedId) {
+        let found = catalog.find((r) => r.id === selectedId);
+        if (found) {
+          setSelected(found);
+          setView("detail");
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/recipes/${selectedId}`);
+          if (response.ok) {
+            const recipe = await response.json();
+            setSelected(recipe);
+            setView("detail");
+          } else {
+            setView("browse");
+            router.push("/explore");
+          }
+        } catch (error) {
+          console.error("Failed to fetch recipe:", error);
+          setView("browse");
+          router.push("/explore");
+        }
+      }
+    }
+
+    if (selectedId && (catalog.length > 0 || initialView === "detail")) {
+      loadRecipe();
     }
   }, [initialView, selectedId, catalog, router]);
 
@@ -205,28 +412,33 @@ export function FoodApp({
     setShopping((current) => [
       ...new Set([
         ...current,
-        ...recipe.ingredients.map((ingredient: { name: string }) => ingredient.name),
+        ...recipe.ingredients.map(
+          (ingredient: { name: string }) => ingredient.name
+        ),
       ]),
     ]);
   };
 
-  // ----- EXPLORE -----
-  const browse = useMemo(
-    () =>
-      catalog.filter(
-        (recipe) =>
-          (category === "All" ||
-            recipe.category === category ||
-            (category === "Breakfast" && recipe.mealType === "Breakfast")) &&
-          recipe.name.toLowerCase().includes(query.toLowerCase())
-      ),
-    [category, query, catalog]
-  );
+  // ----- EXPLORE FILTER -----
+  const browse = useMemo(() => {
+    return catalog.filter((recipe) => {
+      const matchesCategory =
+        category === "All" ||
+        category === "Comrade Favorites" ||
+        recipe.category === category ||
+        (category === "Breakfast" && recipe.mealType === "Breakfast");
 
-  // ----- FAVORITES -----
-  const loved = favorites.map((id) => recipeService.get(id)).filter(Boolean) as Recipe[];
+      const matchesQuery =
+        !query || recipe.name.toLowerCase().includes(query.toLowerCase());
 
-  // ----- RECOMMENDATION -----
+      return matchesCategory && matchesQuery;
+    });
+  }, [category, query, catalog]);
+
+  const loved = favorites
+    .map((id) => recipeService.get(id))
+    .filter(Boolean) as Recipe[];
+
   const recommend = (type?: MealType) => {
     const ranked = rankRecipes(
       catalog,
@@ -235,17 +447,13 @@ export function FoodApp({
     );
     setResult(ranked[0] ?? null);
     setView("surprise");
-    router.push("/?view=surprise");
   };
 
-  // ----- NAVIGATION -----
   const nav = (next: View | string) => {
     const target = next as View;
     setView(target);
     setMobileOpen(false);
 
-    // Only push routes for views that have dedicated pages.
-    // Detail is handled by open(), profile and settings stay in-app.
     const paths: Partial<Record<View, string>> = {
       home: "/",
       browse: "/explore",
@@ -253,8 +461,6 @@ export function FoodApp({
       planner: "/planner",
       meals: "/meals",
       shopping: "/shopping",
-      surprise: "/?view=surprise",
-      // detail, profile, settings are NOT pushed
     };
 
     if (paths[target]) {
@@ -262,10 +468,12 @@ export function FoodApp({
     }
   };
 
-  // ----- LAYOUT WIDTH -----
   const contentOffset = sidebarCollapsed ? "md:pl-[72px]" : "md:pl-[280px]";
+  const TopbarComponent = Topbar as any;
 
-  // ----- RENDER -----
+  // ✅ Remount key — refreshes dashboard when data changes
+  const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}`;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar
@@ -280,7 +488,7 @@ export function FoodApp({
       />
 
       <div className={`${contentOffset} transition-[padding] duration-300`}>
-        <Topbar
+        <TopbarComponent
           view={view}
           shoppingCount={shopping.length}
           onOpenMobileMenu={() => setMobileOpen(true)}
@@ -291,6 +499,7 @@ export function FoodApp({
         <main className="w-full px-5 py-8 sm:px-7 lg:px-10 lg:py-10">
           {view === "home" && (
             <Dashboard
+              key={dashboardKey}
               recipes={catalog}
               onNavigate={nav}
               onRecommend={(type?: string) => recommend(type as MealType)}
@@ -314,6 +523,12 @@ export function FoodApp({
               toggle={toggle}
               open={open}
               images={imageOverrides}
+              showAll={showAll}
+              setShowAll={setShowAll}
+              hasMore={hasMore}
+              isLoadingMore={isLoadingMore}
+              onLoadMore={loadMore}
+              totalLoaded={allRecipes.length}
             />
           )}
 
@@ -345,7 +560,9 @@ export function FoodApp({
               favorite={favorites.includes(selected.id)}
               toggle={() => toggle(selected.id)}
               cook={() => cook(selected)}
-              onBack={() => nav("browse")}
+              onBack={() => {
+                router.back();
+              }}
               images={imageOverrides}
               onImageChange={setImageOverrides}
             />
@@ -354,15 +571,17 @@ export function FoodApp({
           {view === "planner" && (
             <Planner
               recipes={catalog}
-              history={history}
               open={open}
               shopping={shopping}
+              setShopping={setShopping}
               images={imageOverrides}
             />
           )}
 
+          {/* ✅ MEALS — now passes catalog */}
           {view === "meals" && (
             <Meals
+              catalog={catalog}
               loved={loved}
               history={history}
               open={open}
@@ -370,14 +589,16 @@ export function FoodApp({
             />
           )}
 
-          {view === "shopping" && <Shopping items={shopping} setItems={setShopping} />}
+          {view === "shopping" && (
+            <Shopping items={shopping} setItems={setShopping} />
+          )}
 
           {view === "profile" && <ProfileComponent />}
           {view === "settings" && <SettingsComponent />}
         </main>
       </div>
 
-      {/* Notification toast */}
+      {/* NOTICE TOAST */}
       {notice && (
         <div className="fixed bottom-5 right-5 z-[60] flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
           <Bell className="size-5 shrink-0 text-accent" />

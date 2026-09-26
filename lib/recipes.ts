@@ -1,5 +1,8 @@
+// lib/recipes.ts
+
 export type CostRange = { min: number; max: number };
 export type Ingredient = { name: string; amount: string; essential?: boolean };
+
 export type Recipe = {
   id: string;
   name: string;
@@ -15,15 +18,18 @@ export type Recipe = {
   difficulty: "Easy" | "Medium";
   estimatedCost: CostRange;
   equipment: string[];
-  image: string;
+  image: string | null; // ✅ Now allows null
   tags: string[];
   dietaryInfo: string[];
   popularity: number;
+  slug?: string;
+  isComradeFriendly?: boolean;
 };
 
 const photo = (id: string) =>
   `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1000&q=82`;
 const localPhoto = (name: string) => `/images/${name}.png`;
+
 const base = (
   overrides: Partial<Recipe> &
     Pick<Recipe, "id" | "name" | "category" | "mealType">,
@@ -47,7 +53,7 @@ const base = (
   difficulty: "Easy",
   estimatedCost: { min: 80, max: 150 },
   equipment: ["Sufuria", "Wooden spoon"],
-  image: photo("photo-1547592180-85f173990554"),
+  image: null, // ✅ Default to null (placeholder shown)
   tags: ["Comrade-friendly"],
   dietaryInfo: [],
   popularity: 80,
@@ -412,6 +418,7 @@ export const categories = [
   "Beef",
   "Eggs",
 ];
+
 export const recipeService = {
   list: () => recipes,
   get: (id: string) => recipes.find((recipe) => recipe.id === id),
