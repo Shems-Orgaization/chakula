@@ -95,7 +95,7 @@ export function FoodApp({
     setIsLoadingMore(false);
   }, [catalogResponse, page]);
 
-  // ✅ Reset pagination ONLY when showAll actually changes (StrictMode-safe)
+  // Reset pagination ONLY when showAll actually changes (StrictMode-safe)
   const prevShowAllRef = useRef(showAll);
   useEffect(() => {
     if (prevShowAllRef.current === showAll) return;
@@ -238,6 +238,41 @@ export function FoodApp({
     mounted,
     userId,
   ]);
+
+  // ----- REFETCH SHOPPING WHEN ENTERING THE SHOPPING VIEW -----
+  useEffect(() => {
+    if (view !== "shopping" || !userId) return;
+
+    (async () => {
+      try {
+        const listsRes = await fetch("/api/shopping-lists");
+        const listsData = await listsRes.json();
+        const lists: any[] = listsData.lists ?? [];
+
+        const todayStr = new Date().toISOString().split("T")[0];
+        const isActive = (l: any) =>
+          l.end_date
+            ? l.start_date <= todayStr && todayStr <= l.end_date
+            : l.start_date === todayStr;
+
+        const listId = lists.find(isActive)?.id ?? lists[0]?.id;
+        if (!listId) {
+          setShopping([]);
+          return;
+        }
+
+        const itemsRes = await fetch(`/api/shopping?list_id=${listId}`);
+        const itemsData = await itemsRes.json();
+        setShopping(
+          (itemsData.items ?? [])
+            .filter((i: any) => !i.checked)
+            .map((i: any) => i.ingredient_name)
+        );
+      } catch (err) {
+        console.error("Failed to refetch shopping:", err);
+      }
+    })();
+  }, [view, userId]);
 
   // ============================================================
   // ✅ REMINDER FIRING HOOK
@@ -453,6 +488,8 @@ export function FoodApp({
     setView("surprise");
   };
 
+  // ----- NAVIGATION -----
+  // shopping / surprise / profile / settings / detail stay in-app (no route push)
   const nav = (next: View | string) => {
     const target = next as View;
     setView(target);
@@ -464,7 +501,6 @@ export function FoodApp({
       pantry: "/pantry",
       planner: "/planner",
       meals: "/meals",
-      shopping: "/shopping",
     };
 
     if (paths[target]) {
