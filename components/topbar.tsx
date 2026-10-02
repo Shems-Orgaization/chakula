@@ -71,13 +71,26 @@ export function Topbar({
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur-xl">
-      <div className="flex min-h-[76px] items-center justify-between gap-6 px-6 sm:px-8 lg:px-10">
+      <div className="flex min-h-[76px] items-center justify-between gap-3 px-4 sm:gap-6 sm:px-8 lg:px-10">
+
+        {/* ✅ Hamburger menu – visible only on mobile */}
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:hidden"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="size-5" />
+          </button>
+        )}
+
         {/* Page title */}
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-serif text-xl font-semibold tracking-[-0.025em] text-foreground sm:text-[22px]">
+          <h1 className="truncate font-serif text-lg font-semibold tracking-[-0.025em] text-foreground sm:text-[22px]">
             {title}
           </h1>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground sm:text-[13px]">
+          <p className="mt-0.5 hidden truncate text-xs text-muted-foreground sm:block sm:text-[13px]">
             {subtitle}
           </p>
         </div>
@@ -89,7 +102,7 @@ export function Topbar({
             <button
               type="button"
               onClick={() => setRemindersOpen(!remindersOpen)}
-              className={`group flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors ${
+              className={`group flex h-10 items-center gap-2 rounded-xl px-2 text-sm font-medium transition-colors sm:px-3 ${
                 remindersOpen
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -128,7 +141,7 @@ export function Topbar({
           <button
             type="button"
             onClick={() => onNavigate("shopping")}
-            className="group flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="group flex h-10 items-center gap-2 rounded-xl px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:px-3"
             aria-label="Shopping list"
           >
             <ShoppingBag className="size-[17px]" />
