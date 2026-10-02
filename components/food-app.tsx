@@ -121,7 +121,13 @@ export function FoodApp({
   const [history, setHistory] = useState<string[]>([]);
   const [pantry, setPantry] = useState<string[]>([]);
   const [shopping, setShopping] = useState<string[]>([]);
+
+  // ✅ THEME STATE — initialised from what the inline script already applied.
+  // We don't know the value on the server, so we default to false and let
+  // the inline script handle the actual DOM class before paint. After mount,
+  // we sync React state to match the DOM.
   const [dark, setDark] = useState(false);
+
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
@@ -156,6 +162,13 @@ export function FoodApp({
     if (saved !== null) {
       setSidebarCollapsed(saved === "true");
     }
+  }, []);
+
+  // ----- SYNC REACT THEME STATE TO WHAT THE INLINE SCRIPT APPLIED -----
+  // The inline script in app/layout.tsx sets the `dark` class on <html>
+  // BEFORE paint. We read that class once on mount so React state matches.
+  useEffect(() => {
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   // ----- LOAD USER DATA -----
@@ -194,7 +207,6 @@ export function FoodApp({
           read(store.shopping, [])
       );
 
-      setDark(read<string>(store.theme, "light") === "dark");
       setReminders(
         prefs?.reminders ??
           read(store.reminders, { morning: true, lunch: true, evening: true })
@@ -212,9 +224,15 @@ export function FoodApp({
   }, [router]);
 
   // ----- SYNC PREFERENCES -----
+  // Also writes the theme to localStorage so the inline script on the next
+  // page load picks it up before paint — no flash, ever.
   useEffect(() => {
     if (!mounted || !userId) return;
+
     document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    localStorage.setItem("food-theme", JSON.stringify(dark ? "dark" : "light"));
+
     void fetch("/api/preferences", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -511,7 +529,6 @@ export function FoodApp({
   const contentOffset = sidebarCollapsed ? "md:pl-[72px]" : "md:pl-[280px]";
   const TopbarComponent = Topbar as any;
 
-  // ✅ Remount key — refreshes dashboard when data changes
   const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}`;
 
   return (
@@ -638,7 +655,6 @@ export function FoodApp({
         </main>
       </div>
 
-      {/* NOTICE TOAST */}
       {notice && (
         <div className="fixed bottom-5 right-5 z-[60] flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
           <Bell className="size-5 shrink-0 text-accent" />

@@ -1,11 +1,11 @@
+// app/login/page.tsx
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
-import { read } from "@/lib/storage";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,11 +15,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // ✅ Safe theme loader – uses read() which catches JSON.parse errors
-  useEffect(() => {
-    const theme = read<string>("food-theme", "light");
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }, []);
+  // ✅ No theme useEffect — the inline script in app/layout.tsx already
+  // applied the correct theme class BEFORE paint. Nothing to do here.
 
   async function submit(event: FormEvent) {
     event.preventDefault();
