@@ -1,5 +1,7 @@
-import { FoodApp } from '@/components/food-app'
+"use client";
+
+import { FoodApp } from "@/components/food-app";
 
 export default function ShoppingPage() {
-  return <FoodApp initialView="shopping" />
+  return <FoodApp initialView="shopping" />;
 }

@@ -1,3 +1,4 @@
+// components/views/planner.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -152,8 +153,8 @@ export function Planner({
     }
   };
 
-  // ----- GENERATE SHOPPING LIST -----
-  const generateShoppingList = () => {
+  // ----- GENERATE SHOPPING LIST (adds to active list) -----
+  const generateShoppingList = async () => {
     const allIngredients = new Set<string>();
 
     plans.forEach((plan) => {
@@ -169,18 +170,62 @@ export function Planner({
       return;
     }
 
-    const merged = [...new Set([...shopping, ...allIngredients])];
-    setShopping(merged);
+    try {
+      // 1. Find or create an active shopping list
+      const listsRes = await fetch("/api/shopping-lists");
+      const listsData = await listsRes.json();
+      const lists: any[] = listsData.lists ?? [];
 
-    // Persist
-    void fetch("/api/shopping", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: Array.from(allIngredients) }),
-    });
+      const todayStr = new Date().toISOString().split("T")[0];
+      const isActive = (l: any) =>
+        l.end_date
+          ? l.start_date <= todayStr && todayStr <= l.end_date
+          : l.start_date === todayStr;
 
-    setNotice(`🛒 Added ${allIngredients.size} items to shopping list`);
-    setTimeout(() => setNotice(null), 3000);
+      let listId = lists.find(isActive)?.id ?? lists[0]?.id;
+
+      if (!listId) {
+        // Create a default weekly list
+        const createRes = await fetch("/api/shopping-lists", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Weekly Groceries",
+            period_type: "week",
+            start_date: todayStr,
+            budget: 0,
+          }),
+        });
+        const createData = await createRes.json();
+        listId = createData.list?.id;
+      }
+
+      if (!listId) throw new Error("Could not resolve a shopping list");
+
+      // 2. Add the ingredients to that list
+      const res = await fetch("/api/shopping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: Array.from(allIngredients),
+          list_id: listId,
+          source: "recipe",
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to add");
+
+      // 3. Update the parent shopping state so the badge updates
+      const merged = [...new Set([...shopping, ...allIngredients])];
+      setShopping(merged);
+
+      setNotice(`🛒 Added ${allIngredients.size} items to your list`);
+      setTimeout(() => setNotice(null), 3000);
+    } catch (err) {
+      console.error(err);
+      setNotice("❌ Failed to add items");
+      setTimeout(() => setNotice(null), 3000);
+    }
   };
 
   // ----- CLEAR WEEK -----
