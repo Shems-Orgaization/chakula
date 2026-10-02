@@ -23,6 +23,7 @@ interface ExploreProps {
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
   totalLoaded?: number;
+  loading?: boolean;
 }
 
 export function Explore({
@@ -41,6 +42,7 @@ export function Explore({
   isLoadingMore = false,
   onLoadMore = () => {},
   totalLoaded = 0,
+  loading = false,
 }: ExploreProps) {
   const cats = [
     "All",
@@ -120,11 +122,15 @@ export function Explore({
         </div>
       </div>
 
-      {displayList.length === 0 ? (
+      {loading ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-12 text-center">
           <Loader2 className="size-6 animate-spin text-accent mb-3" />
+          <p className="text-muted-foreground">Loading recipes…</p>
+        </div>
+      ) : displayList.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-12 text-center">
           <p className="text-muted-foreground">
-            {isLoadingMore ? "Loading recipes..." : "No recipes found. Try a different search."}
+            No recipes found. Try a different search.
           </p>
         </div>
       ) : (
@@ -163,7 +169,9 @@ export function Explore({
                     aria-label="Save meal"
                   >
                     <Heart
-                      className={`size-4 ${favorite.includes(r.id) ? "fill-current" : ""}`}
+                      className={`size-4 ${
+                        favorite.includes(r.id) ? "fill-current" : ""
+                      }`}
                     />
                   </button>
 
@@ -174,7 +182,10 @@ export function Explore({
                     </div>
                   )}
 
-                  <button className="block w-full p-4 text-left" onClick={() => open(r)}>
+                  <button
+                    className="block w-full p-4 text-left"
+                    onClick={() => open(r)}
+                  >
                     <p className="eyebrow text-accent">
                       {r.category} · {r.mealType}
                     </p>

@@ -67,30 +67,40 @@ export function FoodApp({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // ----- DATA -----
-  const { data: catalogResponse } = useSWR<RecipesResponse>(
+  const {
+    data: catalogResponse,
+    isLoading: isCatalogLoading,
+  } = useSWR<RecipesResponse>(
     `/api/recipes?page=${page}&limit=50${showAll ? "&includeAll=true" : ""}`,
     fetcher,
     { revalidateOnFocus: false }
   );
 
+  // Merge new page data into the list
   useEffect(() => {
-    if (catalogResponse?.recipes) {
-      if (page === 1) {
-        setAllRecipes(catalogResponse.recipes);
-      } else {
-        setAllRecipes((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
-          const newRecipes = catalogResponse.recipes.filter(
-            (r) => !existingIds.has(r.id)
-          );
-          return [...prev, ...newRecipes];
-        });
-      }
-      setHasMore(catalogResponse.hasMore);
+    if (!catalogResponse?.recipes) return;
+
+    if (page === 1) {
+      setAllRecipes(catalogResponse.recipes);
+    } else {
+      setAllRecipes((prev) => {
+        const existingIds = new Set(prev.map((r) => r.id));
+        const newRecipes = catalogResponse.recipes.filter(
+          (r) => !existingIds.has(r.id)
+        );
+        return [...prev, ...newRecipes];
+      });
     }
+    setHasMore(catalogResponse.hasMore);
+    setIsLoadingMore(false);
   }, [catalogResponse, page]);
 
+  // ✅ Reset pagination ONLY when showAll actually changes (StrictMode-safe)
+  const prevShowAllRef = useRef(showAll);
   useEffect(() => {
+    if (prevShowAllRef.current === showAll) return;
+    prevShowAllRef.current = showAll;
+
     setPage(1);
     setAllRecipes([]);
     setHasMore(true);
@@ -140,12 +150,6 @@ export function FoodApp({
     setIsLoadingMore(true);
     setPage((p) => p + 1);
   }, [hasMore, isLoadingMore]);
-
-  useEffect(() => {
-    if (catalogResponse) {
-      setIsLoadingMore(false);
-    }
-  }, [catalogResponse]);
 
   useEffect(() => {
     const saved = sessionStorage.getItem("sidebar-collapsed");
@@ -529,6 +533,7 @@ export function FoodApp({
               isLoadingMore={isLoadingMore}
               onLoadMore={loadMore}
               totalLoaded={allRecipes.length}
+              loading={isCatalogLoading}
             />
           )}
 
@@ -578,7 +583,6 @@ export function FoodApp({
             />
           )}
 
-          {/* ✅ MEALS — now passes catalog */}
           {view === "meals" && (
             <Meals
               catalog={catalog}
