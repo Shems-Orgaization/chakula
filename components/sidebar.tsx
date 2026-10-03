@@ -66,19 +66,20 @@ export function Sidebar({
     { view: "meals", label: "My Meals", Icon: UtensilsCrossed },
   ];
 
-  async function logout() {
-    setLoggingOut(true);
-    try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      router.replace("/login");
-      router.refresh();
-    } catch (error) {
-      console.error("Logout error:", error);
-    } finally {
-      setLoggingOut(false);
-    }
+async function logout() {
+  setLoggingOut(true);
+  try {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    document.cookie = "chakula-last-active=; Max-Age=0; path=/";
+    router.replace("/login");
+    router.refresh();
+  } catch (error) {
+    console.error("Logout error:", error);
+  } finally {
+    setLoggingOut(false);
   }
+}
 
   const sidebarWidth = collapsed ? "w-[72px]" : "w-[280px]";
 
@@ -109,7 +110,7 @@ export function Sidebar({
                 onClose?.();
               }}
             >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-orange-600 text-white shadow-lg shadow-accent/20 transition-transform group-hover:scale-105">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-accent to-orange-600 text-white shadow-lg shadow-accent/20 transition-transform group-hover:scale-105">
                 <UtensilsCrossed className="size-5" strokeWidth={2.2} />
               </span>
               {!collapsed && (
@@ -144,7 +145,7 @@ export function Sidebar({
 
         {/* User profile */}
         {!collapsed && (
-          <div className="mx-3 mt-3 rounded-xl bg-gradient-to-br from-secondary/80 to-secondary/40 p-3 border border-border/50">
+          <div className="mx-3 mt-3 rounded-xl bg-linear-to-br from-secondary/80 to-secondary/40 p-3 border border-border/50">
             <div className="flex items-center gap-3">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
                 <User className="size-5" />
@@ -251,7 +252,7 @@ export function Sidebar({
               onNavigate("surprise");
               onClose?.();
             }}
-            className={`flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-accent to-orange-500 px-3 py-2.5 text-left text-sm font-semibold text-white shadow-lg shadow-accent/25 transition-all hover:shadow-accent/40 hover:scale-[1.02] ${
+            className={`flex w-full items-center gap-3 rounded-xl bg-linear-to-r from-accent to-orange-500 px-3 py-2.5 text-left text-sm font-semibold text-white shadow-lg shadow-accent/25 transition-all hover:shadow-accent/40 hover:scale-[1.02] ${
               collapsed ? "justify-center px-2" : ""
             }`}
             title={collapsed ? "Surprise me" : undefined}
