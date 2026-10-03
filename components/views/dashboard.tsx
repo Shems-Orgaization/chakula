@@ -192,7 +192,7 @@ export function Dashboard({
   return (
     <div className="flex flex-col gap-10">
       {/* ============ HERO — PERSONALIZED + BRANDED ============ */}
-      <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-primary/90 to-primary/80 px-6 py-12 text-primary-foreground shadow-xl sm:px-12 sm:py-16">
+      <section className="relative overflow-hidden rounded-[2rem] bg-linear-to-br from-primary via-primary/90 to-primary/80 px-6 py-12 text-primary-foreground shadow-xl sm:px-12 sm:py-16">
         <div className="relative z-10 max-w-2xl">
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-primary-foreground/70">
             <GreetingIcon className="size-4" />
@@ -351,7 +351,7 @@ export function Dashboard({
                         name={recipe.name}
                         category={recipe.category}
                         showName={false}
-                        className="!aspect-auto h-full"
+                        className="aspect-auto! h-full"
                       />
                     )}
                   </div>
