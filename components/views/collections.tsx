@@ -1,3 +1,4 @@
+// components/views/collections.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -8,8 +9,8 @@ import {
   Coffee, Flame, Star, Sparkles, Award, Gift, CakeSlice
 } from "lucide-react";
 import { Recipe } from "@/lib/recipes";
-import { recipeImage, imageAlt } from "@/lib/image-overrides";
 import { formatCost } from "@/lib/recommendations";
+import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
 
 interface Collection {
   id: string;
@@ -496,9 +497,10 @@ function CollectionDetail({
             return (
               <div key={item.id} className="group relative overflow-hidden rounded-2xl border border-border bg-card transition hover:shadow-lg">
                 <button onClick={() => open(r)} className="block w-full">
-                  <img
-                    src={recipeImage(r, images) ?? undefined}
-                    alt={imageAlt(r, images)}
+                  {/* ✅ REPLACED WITH RecipeImage */}
+                  <RecipeImage
+                    recipe={r}
+                    images={images}
                     className="aspect-[1.2] w-full object-cover"
                   />
                 </button>

@@ -1,7 +1,11 @@
+// components/views/pantry.tsx
+"use client";
+
 import { useState, useMemo } from "react";
 import { X } from "lucide-react";
 import { Recipe } from "@/lib/recipes";
 import { matchRecipe, Match } from "@/lib/recommendations";
+import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
 
 interface PantryProps {
   recipes: Recipe[];
@@ -10,6 +14,7 @@ interface PantryProps {
   open: (recipe: Recipe) => void;
   shopping: string[];
   setShopping: (items: string[]) => void;
+  images?: Record<string, string>; // ✅ ADDED
 }
 
 export function Pantry({
@@ -19,6 +24,7 @@ export function Pantry({
   open,
   shopping,
   setShopping,
+  images = {}, // ✅ ADDED
 }: PantryProps) {
   const [input, setInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -105,11 +111,15 @@ export function Pantry({
               className="flex min-w-0 flex-1 items-center gap-3 text-left"
               onClick={() => open(m.recipe)}
             >
-              <img
-                src={m.recipe.image}
-                alt={m.recipe.name}
-                className="size-16 rounded-lg object-cover"
-              />
+              {/* ✅ REPLACED WITH RecipeImage */}
+              <div className="size-16 shrink-0 overflow-hidden rounded-lg">
+                <RecipeImage
+                  recipe={m.recipe}
+                  images={images}
+                  className="size-full object-cover"
+                  placeholderClassName="!aspect-auto h-full"
+                />
+              </div>
               <span className="min-w-0 flex-1">
                 <strong className="block">{m.recipe.name}</strong>
                 <span className="mt-1 block truncate text-sm text-muted-foreground">

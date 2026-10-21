@@ -15,9 +15,6 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // ✅ No theme useEffect — the inline script in app/layout.tsx already
-  // applied the correct theme class BEFORE paint. Nothing to do here.
-
   async function submit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -35,7 +32,9 @@ export default function LoginPage() {
       );
       return;
     }
-    router.replace("/");
+    
+    // ✅ Redirect to dashboard, not landing page
+    router.replace("/dashboard");
     router.refresh();
   }
 

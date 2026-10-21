@@ -18,16 +18,13 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
-
           response = NextResponse.next({
             request,
           });
-
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),
           );
@@ -41,7 +38,6 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-
   const isApiPath = pathname.startsWith("/api/");
 
   const isAuthPage = [
@@ -51,7 +47,9 @@ export async function updateSession(request: NextRequest) {
     "/reset-password",
   ].includes(pathname);
 
+  // FIXED: Added pathname === "/" to prevent redirecting the landing page
   const isPublicPath =
+    pathname === "/" ||
     pathname === "/auth/callback" ||
     pathname.startsWith("/_next");
 
@@ -100,20 +98,16 @@ export async function updateSession(request: NextRequest) {
   // Protect application pages
   if (!user && !isAuthPage && !isPublicPath) {
     const redirect = request.nextUrl.clone();
-
     redirect.pathname = "/login";
     redirect.searchParams.set("next", pathname);
-
     return NextResponse.redirect(redirect);
   }
 
   // Logged-in users should not revisit auth pages
   if (user && isAuthPage) {
     const redirect = request.nextUrl.clone();
-
     redirect.pathname = "/";
     redirect.search = "";
-
     return NextResponse.redirect(redirect);
   }
 

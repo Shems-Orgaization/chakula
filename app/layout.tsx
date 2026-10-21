@@ -37,7 +37,6 @@ const themeInitScript = `
     } else if (stored === '"light"' || stored === 'light') {
       theme = 'light';
     } else {
-      // No stored preference — fall back to device preference
       var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       theme = prefersDark ? 'dark' : 'light';
     }
@@ -61,7 +60,11 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        {/* Native inline script — runs synchronously before paint */}
+        <script
+          id="theme-init"
+          dangerouslySetInnerHTML={{ __html: themeInitScript }}
+        />
       </head>
       <body className="antialiased">
         {children}

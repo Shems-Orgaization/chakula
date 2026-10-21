@@ -1,7 +1,7 @@
 // components/recipe-placeholder.tsx
 import {
   Utensils, Salad, Beef, Soup, Cake, Coffee, Flame, Soup as SoupIcon,
-  ChefHat, Wheat, Fish
+  ChefHat, Wheat, Fish, Cookie, Egg
 } from "lucide-react";
 
 interface RecipePlaceholderProps {
@@ -37,7 +37,6 @@ const CATEGORY_ICON: Record<string, any> = {
   omena: Fish,
   chicken: Beef,
   beef: Beef,
-  eggs: Utensils,
   potatoes: Utensils,
   pasta: Utensils,
   vegetables: Salad,
@@ -47,6 +46,16 @@ const CATEGORY_ICON: Record<string, any> = {
   "high-protein": Beef,
   dessert: Cake,
   soup: SoupIcon,
+  // ✅ ADDED ICONS
+  eggs: Egg,
+  seafood: Fish,
+  snack: Cookie,
+  salad: Salad,
+  beverage: Coffee,
+  meat: Beef,
+  "side dish": Salad,
+  "main dish": Utensils,
+  "quick meals": Flame,
 };
 
 function hashString(str: string): number {
