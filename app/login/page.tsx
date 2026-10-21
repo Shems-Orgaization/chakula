@@ -2,16 +2,15 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { AuthShell, FormMessage, PasswordField, SubmitButton, TextField } from "@/components/auth-shell";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -32,77 +31,67 @@ export default function LoginPage() {
       );
       return;
     }
-    
-    // ✅ Redirect to dashboard, not landing page
+
     router.replace("/dashboard");
     router.refresh();
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-5">
-      <form onSubmit={submit} className="panel w-full max-w-md">
-        <p className="eyebrow text-accent">chakula</p>
-        <h1 className="mt-3 font-serif text-4xl">Welcome back.</h1>
-        <p className="mt-3 leading-6 text-muted-foreground">
-          Sign in to keep your meals, pantry, planner, and preferences synced.
-        </p>
-        <label className="field-label mt-8 block">
-          Email
-          <input
-            className="text-input mt-2 w-full"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+    <AuthShell
+      variant="login"
+      headline="Welcome back to your kitchen."
+      text="Sign in to pick up your meals, pantry and plans right where you left off."
+    >
+      <h1 className="font-serif text-4xl tracking-tight">Welcome back.</h1>
+      <p className="mt-3 leading-6 text-muted-foreground">
+        Sign in to keep your meals, pantry, planner and preferences synced.
+      </p>
+
+      <form onSubmit={submit} className="mt-8 grid gap-5">
+        <TextField
+          id="email"
+          label="Email"
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          placeholder="you@example.com"
+        />
+        <div>
+          <PasswordField
+            id="password"
+            label="Password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
           />
-        </label>
-        <label className="field-label mt-4 block">
-          Password
-          <div className="relative mt-2">
-            <input
-              className="text-input w-full pr-12"
-              type={showPassword ? "text" : "password"}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              onClick={() => setShowPassword((value) => !value)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
+          <div className="mt-2 text-right">
+            <Link
+              href="/forgot-password"
+              className="rounded text-sm font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              {showPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
-            </button>
+              Forgot password?
+            </Link>
           </div>
-        </label>
-        {error && (
-          <p className="mt-4 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        <button className="primary-button mt-6 w-full" disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-        <div className="mt-5 flex items-center justify-between text-sm">
-          <Link
-            className="font-semibold text-accent hover:underline"
-            href="/forgot-password"
-          >
-            Forgot password?
-          </Link>
-          <Link
-            className="font-semibold text-accent hover:underline"
-            href="/signup"
-          >
-            Create account
-          </Link>
         </div>
+
+        {error && <FormMessage kind="error">{error}</FormMessage>}
+
+        <SubmitButton loading={loading} loadingText="Signing in…">
+          Sign in
+        </SubmitButton>
       </form>
-    </main>
+
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Don&apos;t have an account?{" "}
+        <Link
+          href="/signup"
+          className="rounded font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Create account
+        </Link>
+      </p>
+    </AuthShell>
   );
 }

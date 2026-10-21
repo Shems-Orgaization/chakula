@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { AuthShell, FormMessage, PasswordField, SubmitButton, TextField } from "@/components/auth-shell";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function SignupPage() {
       return setError("Password must be at least 8 characters.");
     if (password !== confirm) return setError("Passwords do not match.");
     setLoading(true);
-    const { data, error } = await createClient().auth.signUp({
+    const { data, error: authError } = await createClient().auth.signUp({
       email,
       password,
       options: {
@@ -36,14 +37,13 @@ export default function SignupPage() {
       },
     });
     setLoading(false);
-    if (error)
+    if (authError)
       return setError(
-        error.message.toLowerCase().includes("already")
+        authError.message.toLowerCase().includes("already")
           ? "An account may already exist for this email."
           : "Unable to create your account. Please check your details.",
       );
-      
-    // ✅ Redirect to dashboard if session exists
+
     if (data.session) router.replace("/dashboard");
     else
       setMessage(
@@ -52,79 +52,69 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
-      <form onSubmit={submit} className="panel w-full max-w-md">
-        <p className="eyebrow text-accent">chakula</p>
-        <h1 className="mt-3 font-serif text-4xl">Make meals yours.</h1>
-        <p className="mt-3 leading-6 text-muted-foreground">
-          Create an account to keep your pantry, plans, and favourites synced.
-        </p>
-        <label className="field-label mt-8">
-          Full name
-          <input
-            className="text-input mt-2 w-full"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoComplete="name"
-          />
-        </label>
-        <label className="field-label mt-4">
-          Email
-          <input
-            className="text-input mt-2 w-full"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-          />
-        </label>
-        <label className="field-label mt-4">
-          Password
-          <input
-            className="text-input mt-2 w-full"
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        <label className="field-label mt-4">
-          Confirm password
-          <input
-            className="text-input mt-2 w-full"
-            type="password"
-            required
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        {error && (
-          <p className="mt-4 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p className="mt-4 text-sm text-accent" role="status">
-            {message}
-          </p>
-        )}
-        <button className="primary-button mt-6 w-full" disabled={loading}>
-          {loading ? "Creating account…" : "Create account"}
-        </button>
-        <p className="mt-5 text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link
-            className="font-semibold text-accent hover:underline"
-            href="/login"
-          >
-            Sign in
-          </Link>
-        </p>
+    <AuthShell
+      variant="signup"
+      headline="Make meals yours."
+      text="Create an account to keep your pantry, plans and favourites synced across every device."
+    >
+      <h1 className="font-serif text-4xl tracking-tight">Create your account.</h1>
+      <p className="mt-3 leading-6 text-muted-foreground">
+        Takes a minute. You will confirm your email, then sign in.
+      </p>
+
+      <form onSubmit={submit} className="mt-8 grid gap-5">
+        <TextField
+          id="name"
+          label="Full name"
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoComplete="name"
+          placeholder="Your name"
+        />
+        <TextField
+          id="email"
+          label="Email"
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          placeholder="you@example.com"
+        />
+        <PasswordField
+          id="password"
+          label="Password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="new-password"
+          hint="At least 8 characters."
+        />
+        <PasswordField
+          id="confirm"
+          label="Confirm password"
+          value={confirm}
+          onChange={setConfirm}
+          autoComplete="new-password"
+        />
+
+        {error && <FormMessage kind="error">{error}</FormMessage>}
+        {message && <FormMessage kind="success">{message}</FormMessage>}
+
+        <SubmitButton loading={loading} loadingText="Creating account…">
+          Create account
+        </SubmitButton>
       </form>
-    </main>
+
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link
+          href="/login"
+          className="rounded font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Sign in
+        </Link>
+      </p>
+    </AuthShell>
   );
 }
