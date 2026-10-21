@@ -9,8 +9,7 @@ import {
 } from "lucide-react";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
-import { recipeImage, imageAlt } from "@/lib/image-overrides";
-import { RecipePlaceholder } from "@/components/recipe-placeholder";
+import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
 
 interface Suggestion {
   recipe: Recipe;
@@ -311,7 +310,6 @@ export function Surprise({
             {suggestions.map((match) => {
               const r = match.recipe;
               const isFav = favorites.includes(r.id);
-              const img = recipeImage(r, images);
               return (
                 <div
                   key={r.id}
@@ -322,20 +320,13 @@ export function Surprise({
                       onClick={() => open(r)}
                       className="block size-full"
                     >
-                      {img ? (
-                        <img
-                          src={img}
-                          alt={imageAlt(r, images)}
-                          className="size-full object-cover transition duration-500 group-hover:scale-105"
-                        />
-                      ) : (
-                        <RecipePlaceholder
-                          name={r.name}
-                          category={r.category}
-                          showName={false}
-                          className="!aspect-auto h-full"
-                        />
-                      )}
+                      {/* ✅ REPLACED WITH RecipeImage */}
+                      <RecipeImage
+                        recipe={r}
+                        images={images}
+                        className="size-full object-cover transition duration-500 group-hover:scale-105"
+                        placeholderClassName="!aspect-auto h-full"
+                      />
                     </button>
                     <div className="absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
                       {match.score}% match
@@ -443,29 +434,21 @@ export function Surprise({
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {history.slice(6, 12).map((s) => {
-              const img = recipeImage(s.recipe, images);
               return (
                 <div
                   key={s.recipe.id}
                   onClick={() => open(s.recipe)}
                   className="min-w-[140px] cursor-pointer rounded-xl border border-border bg-card p-2 transition hover:shadow-md"
                 >
-                  {img ? (
-                    <img
-                      src={img}
-                      alt={s.recipe.name}
-                      className="aspect-square w-full rounded-lg object-cover"
+                  {/* ✅ REPLACED WITH RecipeImage */}
+                  <div className="overflow-hidden rounded-lg">
+                    <RecipeImage
+                      recipe={s.recipe}
+                      images={images}
+                      className="aspect-square w-full object-cover"
+                      placeholderClassName="!aspect-square"
                     />
-                  ) : (
-                    <div className="overflow-hidden rounded-lg">
-                      <RecipePlaceholder
-                        name={s.recipe.name}
-                        category={s.recipe.category}
-                        showName={false}
-                        className="aspect-square !aspect-square"
-                      />
-                    </div>
-                  )}
+                  </div>
                   <p className="mt-1 truncate text-xs font-semibold">
                     {s.recipe.name}
                   </p>

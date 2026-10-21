@@ -1,3 +1,4 @@
+// app/signup/page.tsx
 "use client";
 
 import { FormEvent, useState } from "react";
@@ -41,7 +42,9 @@ export default function SignupPage() {
           ? "An account may already exist for this email."
           : "Unable to create your account. Please check your details.",
       );
-    if (data.session) router.replace("/");
+      
+    // ✅ Redirect to dashboard if session exists
+    if (data.session) router.replace("/dashboard");
     else
       setMessage(
         "Account created. Check your email to confirm your account, then sign in.",

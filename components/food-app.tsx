@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Bell, X } from "lucide-react";
 
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
-import { recipeService, type Recipe } from "@/lib/recipes";
+import { type Recipe } from "@/lib/recipes";
 import { rankRecipes, type Match } from "@/lib/recommendations";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
@@ -33,6 +33,7 @@ const store = {
   shopping: "food-shopping",
   theme: "food-theme",
   reminders: "food-reminders",
+  budget: "food-budget",
 };
 
 interface RecipesResponse {
@@ -53,9 +54,11 @@ const fetcher = (url: string) =>
 export function FoodApp({
   initialView = "home",
   selectedId,
+  initialRecipe,
 }: {
   initialView?: View;
   selectedId?: string;
+  initialRecipe?: Recipe;
 }) {
   const router = useRouter();
 
@@ -76,10 +79,8 @@ export function FoodApp({
     { revalidateOnFocus: false }
   );
 
-  // Merge new page data into the list
   useEffect(() => {
     if (!catalogResponse?.recipes) return;
-
     if (page === 1) {
       setAllRecipes(catalogResponse.recipes);
     } else {
@@ -95,12 +96,10 @@ export function FoodApp({
     setIsLoadingMore(false);
   }, [catalogResponse, page]);
 
-  // Reset pagination ONLY when showAll actually changes (StrictMode-safe)
   const prevShowAllRef = useRef(showAll);
   useEffect(() => {
     if (prevShowAllRef.current === showAll) return;
     prevShowAllRef.current = showAll;
-
     setPage(1);
     setAllRecipes([]);
     setHasMore(true);
@@ -113,21 +112,16 @@ export function FoodApp({
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // ----- APP STATE -----
   const [view, setView] = useState<View>(initialView);
-  const [selected, setSelected] = useState<Recipe | null>(null);
+  const [selected, setSelected] = useState<Recipe | null>(initialRecipe ?? null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [pantry, setPantry] = useState<string[]>([]);
   const [shopping, setShopping] = useState<string[]>([]);
-
-  // ✅ THEME STATE — initialised from what the inline script already applied.
-  // We don't know the value on the server, so we default to false and let
-  // the inline script handle the actual DOM class before paint. After mount,
-  // we sync React state to match the DOM.
   const [dark, setDark] = useState(false);
-
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
@@ -138,19 +132,35 @@ export function FoodApp({
     evening: true,
   });
   const [notice, setNotice] = useState<string | null>(null);
-  const [budget, setBudget] = useState(250);
   const [time, setTime] = useState(45);
   const [mealType, setMealType] = useState<MealType>();
   const [mounted, setMounted] = useState(false);
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>({});
 
-  // ----- SIDEBAR STATE -----
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // ✅ Budget State
+  const [userBudget, setUserBudget] = useState<number>(() => {
+    if (typeof window === "undefined") return 250;
+    const saved = localStorage.getItem(store.budget);
+    return saved ? Number(saved) : 250;
+  });
 
-  // ----- REMINDER FIRING (session dedup) -----
+  useEffect(() => {
+    if (mounted) {
+      localStorage.setItem(store.budget, String(userBudget));
+    }
+  }, [userBudget, mounted]);
+
+  const viewImages =
+    process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE === "global" ? {} : imageOverrides;
+
+  const setGlobalImage = useCallback((id: string, url: string | null) => {
+    setAllRecipes((prev) => prev.map((r) => (r.id === id ? { ...r, image: url } : r)));
+    setSelected((s) => (s && s.id === id ? { ...s, image: url } : s));
+  }, []);
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const firedReminders = useRef<Set<string>>(new Set());
 
-  // ----- LOAD MORE -----
   const loadMore = useCallback(() => {
     if (!hasMore || isLoadingMore) return;
     setIsLoadingMore(true);
@@ -159,14 +169,9 @@ export function FoodApp({
 
   useEffect(() => {
     const saved = sessionStorage.getItem("sidebar-collapsed");
-    if (saved !== null) {
-      setSidebarCollapsed(saved === "true");
-    }
+    if (saved !== null) setSidebarCollapsed(saved === "true");
   }, []);
 
-  // ----- SYNC REACT THEME STATE TO WHAT THE INLINE SCRIPT APPLIED -----
-  // The inline script in app/layout.tsx sets the `dark` class on <html>
-  // BEFORE paint. We read that class once on mount so React state matches.
   useEffect(() => {
     setDark(document.documentElement.classList.contains("dark"));
   }, []);
@@ -178,12 +183,14 @@ export function FoodApp({
       const supabase = createSupabaseClient();
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
-        router.replace("/login");
+        // ✅ Redirects to landing page root if not logged in
+        router.replace("/login"); 
         return;
       }
       if (!active) return;
 
       setUserId(data.user.id);
+      setIsAdmin(data.user.app_metadata?.role === "admin");
       setUserEmail(data.user.email || "");
       setUserName(data.user.user_metadata?.display_name || "User");
 
@@ -196,36 +203,27 @@ export function FoodApp({
       setPantry(prefs?.pantry ?? read(store.pantry, []));
 
       const shoppingResponse = await fetch("/api/shopping");
-      const shoppingPayload = shoppingResponse.ok
-        ? await shoppingResponse.json()
-        : null;
+      const shoppingPayload = shoppingResponse.ok ? await shoppingResponse.json() : null;
       setShopping(
-        shoppingPayload?.items?.map(
-          (item: { ingredient_name: string }) => item.ingredient_name
-        ) ??
+        shoppingPayload?.items?.map((item: { ingredient_name: string }) => item.ingredient_name) ??
           prefs?.shopping ??
           read(store.shopping, [])
       );
 
       setReminders(
-        prefs?.reminders ??
-          read(store.reminders, { morning: true, lunch: true, evening: true })
+        prefs?.reminders ?? read(store.reminders, { morning: true, lunch: true, evening: true })
       );
-      setImageOverrides(
-        prefs?.image_overrides ?? read(imageOverrideStorageKey, {})
-      );
+      setImageOverrides(prefs?.image_overrides ?? read(imageOverrideStorageKey, {}));
+      
+      if (prefs?.user_budget) setUserBudget(prefs.user_budget);
 
       setMounted(true);
     })();
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [router]);
 
   // ----- SYNC PREFERENCES -----
-  // Also writes the theme to localStorage so the inline script on the next
-  // page load picks it up before paint — no flash, ever.
   useEffect(() => {
     if (!mounted || !userId) return;
 
@@ -243,63 +241,39 @@ export function FoodApp({
         shopping,
         reminders,
         image_overrides: imageOverrides,
+        user_budget: userBudget,
       }),
     });
   }, [
-    favorites,
-    history,
-    pantry,
-    shopping,
-    dark,
-    reminders,
-    imageOverrides,
-    mounted,
-    userId,
+    favorites, history, pantry, shopping, dark, reminders, imageOverrides, userBudget, mounted, userId,
   ]);
 
-  // ----- REFETCH SHOPPING WHEN ENTERING THE SHOPPING VIEW -----
+  // ----- REFETCH SHOPPING -----
   useEffect(() => {
     if (view !== "shopping" || !userId) return;
-
     (async () => {
       try {
         const listsRes = await fetch("/api/shopping-lists");
         const listsData = await listsRes.json();
         const lists: any[] = listsData.lists ?? [];
-
         const todayStr = new Date().toISOString().split("T")[0];
         const isActive = (l: any) =>
-          l.end_date
-            ? l.start_date <= todayStr && todayStr <= l.end_date
-            : l.start_date === todayStr;
-
+          l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
         const listId = lists.find(isActive)?.id ?? lists[0]?.id;
-        if (!listId) {
-          setShopping([]);
-          return;
-        }
-
+        if (!listId) { setShopping([]); return; }
         const itemsRes = await fetch(`/api/shopping?list_id=${listId}`);
         const itemsData = await itemsRes.json();
         setShopping(
-          (itemsData.items ?? [])
-            .filter((i: any) => !i.checked)
-            .map((i: any) => i.ingredient_name)
+          (itemsData.items ?? []).filter((i: any) => !i.checked).map((i: any) => i.ingredient_name)
         );
-      } catch (err) {
-        console.error("Failed to refetch shopping:", err);
-      }
+      } catch (err) { console.error(err); }
     })();
   }, [view, userId]);
 
-  // ============================================================
-  // ✅ REMINDER FIRING HOOK
-  // ============================================================
+  // ----- REMINDERS -----
   useEffect(() => {
     if (!mounted || !userId) return;
-
     let cancelled = false;
-
     const checkReminders = async () => {
       try {
         const res = await fetch("/api/reminders");
@@ -307,7 +281,6 @@ export function FoodApp({
         const data = await res.json();
         const settings = data.settings ?? [];
         const history = data.history ?? [];
-
         if (cancelled) return;
 
         const now = new Date();
@@ -325,234 +298,114 @@ export function FoodApp({
           const [qeh, qem] = quietEnd.split(":").map(Number);
           const quietStartMin = qsh * 60 + qsm;
           const quietEndMin = qeh * 60 + qem;
-
           const inQuietHours =
             quietStartMin > quietEndMin
               ? currentMinutes >= quietStartMin || currentMinutes < quietEndMin
               : currentMinutes >= quietStartMin && currentMinutes < quietEndMin;
-
           if (inQuietHours) continue;
 
           const fireKey = `${setting.meal_type}-${todayStr}`;
           if (firedReminders.current.has(fireKey)) continue;
-
           const alreadyFiredDB = history.some(
-            (h: any) =>
-              h.meal_type === setting.meal_type &&
-              new Date(h.fired_at).toDateString() === now.toDateString()
+            (h: any) => h.meal_type === setting.meal_type && new Date(h.fired_at).toDateString() === now.toDateString()
           );
-          if (alreadyFiredDB) {
-            firedReminders.current.add(fireKey);
-            continue;
-          }
+          if (alreadyFiredDB) { firedReminders.current.add(fireKey); continue; }
 
-          const [rh, rm] = (setting.reminder_time || "08:00")
-            .split(":")
-            .map(Number);
+          const [rh, rm] = (setting.reminder_time || "08:00").split(":").map(Number);
           const reminderMinutes = rh * 60 + rm;
-          const isTimeForReminder =
-            currentMinutes >= reminderMinutes &&
-            currentMinutes < reminderMinutes + 2;
-
+          const isTimeForReminder = currentMinutes >= reminderMinutes && currentMinutes < reminderMinutes + 2;
           if (!isTimeForReminder) continue;
 
-          const title =
-            setting.meal_type === "morning"
-              ? "Good morning!"
-              : setting.meal_type === "lunch"
-              ? "Lunch time"
-              : "Dinner time";
-
-          const message =
-            setting.meal_type === "morning"
-              ? "What's for breakfast today?"
-              : setting.meal_type === "lunch"
-              ? "What's for lunch today?"
-              : "Plan your dinner tonight";
-
+          const title = setting.meal_type === "morning" ? "Good morning!" : setting.meal_type === "lunch" ? "Lunch time" : "Dinner time";
+          const message = setting.meal_type === "morning" ? "What's for breakfast today?" : setting.meal_type === "lunch" ? "What's for lunch today?" : "Plan your dinner tonight";
           setNotice(`🔔 ${title} — ${message}`);
 
           if (typeof window !== "undefined") {
-            const soundEnabled =
-              localStorage.getItem("reminder-sound") !== "off";
+            const soundEnabled = localStorage.getItem("reminder-sound") !== "off";
             if (soundEnabled) {
               try {
-                const audio = new Audio(
-                  "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT"
-                );
-                audio.volume = 0.3;
-                audio.play().catch(() => {});
+                const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT");
+                audio.volume = 0.3; audio.play().catch(() => {});
               } catch {}
             }
           }
-
           firedReminders.current.add(fireKey);
-
-          try {
-            await fetch("/api/reminder-history", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                meal_type: setting.meal_type,
-                title,
-                message,
-              }),
-            });
-          } catch {}
-
+          try { await fetch("/api/reminder-history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meal_type: setting.meal_type, title, message }) }); } catch {}
           setTimeout(() => setNotice(null), 8000);
         }
-      } catch (err) {
-        console.error("Reminder check failed:", err);
-      }
+      } catch (err) { console.error(err); }
     };
-
     checkReminders();
     const interval = setInterval(checkReminders, 60000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    return () => { cancelled = true; clearInterval(interval); };
   }, [mounted, userId]);
 
   // ----- LOAD SELECTED RECIPE -----
   useEffect(() => {
     async function loadRecipe() {
       if (initialView === "detail" && selectedId) {
+        if (initialRecipe) return;
         let found = catalog.find((r) => r.id === selectedId);
-        if (found) {
-          setSelected(found);
-          setView("detail");
-          return;
-        }
-
+        if (found) { setSelected(found); setView("detail"); return; }
         try {
           const response = await fetch(`/api/recipes/${selectedId}`);
-          if (response.ok) {
-            const recipe = await response.json();
-            setSelected(recipe);
-            setView("detail");
-          } else {
-            setView("browse");
-            router.push("/explore");
-          }
-        } catch (error) {
-          console.error("Failed to fetch recipe:", error);
-          setView("browse");
-          router.push("/explore");
-        }
+          if (response.ok) { const recipe = await response.json(); setSelected(recipe); setView("detail"); }
+          else { setView("browse"); router.push("/explore"); }
+        } catch (error) { setView("browse"); router.push("/explore"); }
       }
     }
-
-    if (selectedId && (catalog.length > 0 || initialView === "detail")) {
-      loadRecipe();
-    }
-  }, [initialView, selectedId, catalog, router]);
+    if (selectedId && (catalog.length > 0 || initialView === "detail")) loadRecipe();
+  }, [initialView, selectedId, catalog, router, initialRecipe]);
 
   // ----- ACTIONS -----
-  const open = (recipe: Recipe) => {
-    setSelected(recipe);
-    setView("detail");
-    router.push(`/recipe/${recipe.id}`);
-  };
-
-  const toggle = (id: string) =>
-    setFavorites((current) =>
-      current.includes(id) ? current.filter((v) => v !== id) : [...current, id]
-    );
-
+  const open = (recipe: Recipe) => { setSelected(recipe); setView("detail"); router.push(`/recipe/${recipe.id}`); };
+  const toggle = (id: string) => setFavorites((current) => current.includes(id) ? current.filter((v) => v !== id) : [...current, id]);
   const cook = (recipe: Recipe) => {
-    setHistory((current) =>
-      [recipe.id, ...current.filter((v) => v !== recipe.id)].slice(0, 20)
-    );
-    setShopping((current) => [
-      ...new Set([
-        ...current,
-        ...recipe.ingredients.map(
-          (ingredient: { name: string }) => ingredient.name
-        ),
-      ]),
-    ]);
+    setHistory((current) => [recipe.id, ...current.filter((v) => v !== recipe.id)].slice(0, 20));
+    setShopping((current) => [...new Set([...current, ...recipe.ingredients.map((ingredient: { name: string }) => ingredient.name)])]);
   };
 
   // ----- EXPLORE FILTER -----
   const browse = useMemo(() => {
     return catalog.filter((recipe) => {
-      const matchesCategory =
-        category === "All" ||
-        category === "Comrade Favorites" ||
-        recipe.category === category ||
-        (category === "Breakfast" && recipe.mealType === "Breakfast");
-
-      const matchesQuery =
-        !query || recipe.name.toLowerCase().includes(query.toLowerCase());
-
+      const matchesCategory = category === "All" || category === "Comrade Favorites" || recipe.category === category || (category === "Breakfast" && recipe.mealType === "Breakfast");
+      const matchesQuery = !query || recipe.name.toLowerCase().includes(query.toLowerCase());
       return matchesCategory && matchesQuery;
     });
   }, [category, query, catalog]);
 
-  const loved = favorites
-    .map((id) => recipeService.get(id))
-    .filter(Boolean) as Recipe[];
+  const loved = favorites.map((id) => catalog.find((r) => r.id === id)).filter(Boolean) as Recipe[];
 
   const recommend = (type?: MealType) => {
-    const ranked = rankRecipes(
-      catalog,
-      { budget, maxTime: time, pantry, bachelor: false, mealType: type },
-      {}
-    );
+    const ranked = rankRecipes(catalog, { budget: userBudget, maxTime: time, pantry, bachelor: false, mealType: type }, {});
     setResult(ranked[0] ?? null);
     setView("surprise");
   };
 
   // ----- NAVIGATION -----
-  // shopping / surprise / profile / settings / detail stay in-app (no route push)
   const nav = (next: View | string) => {
     const target = next as View;
     setView(target);
     setMobileOpen(false);
-
-    const paths: Partial<Record<View, string>> = {
-      home: "/",
-      browse: "/explore",
-      pantry: "/pantry",
-      planner: "/planner",
-      meals: "/meals",
+    const paths: Partial<Record<View, string>> = { 
+      home: "/dashboard", // ✅ Updated to /dashboard
+      browse: "/explore", 
+      pantry: "/pantry", 
+      planner: "/planner", 
+      meals: "/meals" 
     };
-
-    if (paths[target]) {
-      router.push(paths[target] as string);
-    }
+    if (paths[target]) router.push(paths[target] as string);
   };
 
   const contentOffset = sidebarCollapsed ? "md:pl-[72px]" : "md:pl-[280px]";
   const TopbarComponent = Topbar as any;
-
-  const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}`;
+  const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}-${userBudget}`;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Sidebar
-        active={view}
-        onNavigate={nav}
-        dark={dark}
-        onToggleTheme={() => setDark(!dark)}
-        mobileOpen={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-        userEmail={userEmail}
-        userName={userName}
-      />
-
+      <Sidebar active={view} onNavigate={nav} dark={dark} onToggleTheme={() => setDark(!dark)} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userEmail={userEmail} userName={userName} />
       <div className={`${contentOffset} transition-[padding] duration-300`}>
-        <TopbarComponent
-          view={view}
-          shoppingCount={shopping.length}
-          onOpenMobileMenu={() => setMobileOpen(true)}
-          onShowNotice={setNotice}
-          onNavigate={nav}
-        />
-
+        <TopbarComponent view={view} shoppingCount={shopping.length} onOpenMobileMenu={() => setMobileOpen(true)} onShowNotice={setNotice} onNavigate={nav} />
         <main className="w-full px-5 py-8 sm:px-7 lg:px-10 lg:py-10">
           {view === "home" && (
             <Dashboard
@@ -565,108 +418,28 @@ export function FoodApp({
               pantry={pantry}
               reminders={reminders}
               setReminders={setReminders}
-              images={imageOverrides}
+              images={viewImages}
+              userBudget={userBudget}
+              setUserBudget={setUserBudget}
             />
           )}
 
-          {view === "browse" && (
-            <Explore
-              recipes={browse}
-              query={query}
-              setQuery={setQuery}
-              category={category}
-              setCategory={setCategory}
-              favorite={favorites}
-              toggle={toggle}
-              open={open}
-              images={imageOverrides}
-              showAll={showAll}
-              setShowAll={setShowAll}
-              hasMore={hasMore}
-              isLoadingMore={isLoadingMore}
-              onLoadMore={loadMore}
-              totalLoaded={allRecipes.length}
-              loading={isCatalogLoading}
-            />
-          )}
-
-          {view === "pantry" && (
-            <Pantry
-              recipes={catalog}
-              pantry={pantry}
-              setPantry={setPantry}
-              open={open}
-              shopping={shopping}
-              setShopping={setShopping}
-            />
-          )}
-
-          {view === "surprise" && (
-            <Surprise
-              catalog={catalog}
-              onCook={cook}
-              open={open}
-              images={imageOverrides}
-              onSave={toggle}
-              favorites={favorites}
-            />
-          )}
-
-          {view === "detail" && selected && (
-            <Detail
-              recipe={selected}
-              favorite={favorites.includes(selected.id)}
-              toggle={() => toggle(selected.id)}
-              cook={() => cook(selected)}
-              onBack={() => {
-                router.back();
-              }}
-              images={imageOverrides}
-              onImageChange={setImageOverrides}
-            />
-          )}
-
-          {view === "planner" && (
-            <Planner
-              recipes={catalog}
-              open={open}
-              shopping={shopping}
-              setShopping={setShopping}
-              images={imageOverrides}
-            />
-          )}
-
-          {view === "meals" && (
-            <Meals
-              catalog={catalog}
-              loved={loved}
-              history={history}
-              open={open}
-              images={imageOverrides}
-            />
-          )}
-
-          {view === "shopping" && (
-            <Shopping items={shopping} setItems={setShopping} />
-          )}
-
+          {view === "browse" && <Explore recipes={browse} query={query} setQuery={setQuery} category={category} setCategory={setCategory} favorite={favorites} toggle={toggle} open={open} images={viewImages} showAll={showAll} setShowAll={setShowAll} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={loadMore} totalLoaded={allRecipes.length} loading={isCatalogLoading} />}
+          {view === "pantry" && <Pantry recipes={catalog} pantry={pantry} setPantry={setPantry} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
+          {view === "surprise" && <Surprise catalog={catalog} onCook={cook} open={open} images={viewImages} onSave={toggle} favorites={favorites} />}
+          {view === "detail" && selected && <Detail recipe={selected} favorite={favorites.includes(selected.id)} toggle={() => toggle(selected.id)} cook={() => cook(selected)} onBack={() => router.back()} images={viewImages} onImageChange={setImageOverrides} onGlobalImageChange={setGlobalImage} canEditImage={process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE !== "global" || isAdmin} />}
+          {view === "planner" && <Planner recipes={catalog} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
+          {view === "meals" && <Meals catalog={catalog} loved={loved} history={history} open={open} images={viewImages} />}
+          {view === "shopping" && <Shopping items={shopping} setItems={setShopping} />}
           {view === "profile" && <ProfileComponent />}
           {view === "settings" && <SettingsComponent />}
         </main>
       </div>
-
       {notice && (
-        <div className="fixed bottom-5 right-5 z-[60] flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
+        <div className="fixed bottom-5 right-5 z-60 flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
           <Bell className="size-5 shrink-0 text-accent" />
           <p className="text-sm font-medium">{notice}</p>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            aria-label="Dismiss notification"
-            className="ml-auto rounded-lg p-1 transition-colors hover:bg-secondary"
-          >
-            <X className="size-4" />
-          </button>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-auto rounded-lg p-1 hover:bg-secondary"><X className="size-4" /></button>
         </div>
       )}
     </div>

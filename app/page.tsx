@@ -1,6 +1,6 @@
 // app/page.tsx
-import { FoodApp } from "@/components/food-app";
+import { LandingPage } from "@/components/landing-page";
 
-export default function HomePage() {
-  return <FoodApp initialView="home" />;
+export default function Page() {
+  return <LandingPage />;
 }

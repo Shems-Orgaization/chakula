@@ -8,8 +8,7 @@ import {
   Library, Check, Plus, Loader2
 } from "lucide-react";
 import { Recipe } from "@/lib/recipes";
-import { imageAlt, recipeImage } from "@/lib/image-overrides";
-import { RecipePlaceholder } from "@/components/recipe-placeholder";
+import { RecipeImage } from "@/components/recipe-image"; // ✅ Replaced old imports
 import { CollectionIcon } from "./collections";
 
 const formatCost = (cost: { min: number; max: number }) =>
@@ -23,6 +22,8 @@ interface DetailProps {
   onBack: () => void;
   images?: Record<string, string>;
   onImageChange: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
+  onGlobalImageChange?: (id: string, url: string | null) => void;
+  canEditImage?: boolean;
 }
 
 interface CollectionItem {
@@ -41,17 +42,23 @@ export function Detail({
   onBack,
   images = {},
   onImageChange,
+  onGlobalImageChange,
+  canEditImage = true,
 }: DetailProps) {
   const router = useRouter();
   const [cookMode, setCookMode] = useState(false);
   const [checked, setChecked] = useState<string[]>([]);
   const [step, setStep] = useState(0);
 
-  // ✅ Image state — can be null
-  const [currentImage, setCurrentImage] = useState<string | null>(
-    recipeImage(recipe, images)
-  );
-  const [customImage, setCustomImage] = useState(Boolean(images[recipe.id]));
+  // ✅ Global mode logic
+  const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
+  const globalMode = process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE === "global";
+  const shownImages =
+    preview && preview.id === recipe.id ? { ...images, [recipe.id]: preview.url } : images;
+  const customImage = globalMode
+    ? Boolean(recipe.image) || preview?.id === recipe.id
+    : Boolean(shownImages[recipe.id]);
+
   const [uploading, setUploading] = useState(false);
   const [loggingCook, setLoggingCook] = useState(false);
 
@@ -64,12 +71,6 @@ export function Detail({
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-
-  // ---- KEEP IMAGE IN SYNC ----
-  useEffect(() => {
-    setCurrentImage(recipeImage(recipe, images));
-    setCustomImage(Boolean(images[recipe.id]));
-  }, [recipe.id, images]);
 
   // ---- FETCH COLLECTIONS ----
   useEffect(() => {
@@ -100,11 +101,8 @@ export function Detail({
 
   // ---- LOG COOK TO DB + START COOK MODE ----
   const handleStartCooking = async () => {
-    // 1. Update local history
     cook();
-    // 2. Open cook mode immediately for responsive UX
     setCookMode(true);
-    // 3. Log to database in background
     setLoggingCook(true);
     try {
       await fetch("/api/meals", {
@@ -126,43 +124,56 @@ export function Detail({
   const chooseImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
-
     if (file.size > 8 * 1024 * 1024) {
       alert("Image must be under 8MB");
       return;
     }
-
     setUploading(true);
-    const preview = URL.createObjectURL(file);
-    setCurrentImage(preview);
-    setCustomImage(true);
-
+    const blobUrl = URL.createObjectURL(file);
+    setPreview({ id: recipe.id, url: blobUrl });
+    
     const formData = new FormData();
     formData.append("recipeId", recipe.id);
     formData.append("file", file);
 
     try {
-      const response = await fetch("/api/recipe-images", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch("/api/recipe-images", { method: "POST", body: formData });
       const payload = await response.json();
-
       if (!response.ok || !payload.url) {
-        setCurrentImage(recipeImage(recipe, images));
-        setCustomImage(Boolean(images[recipe.id]));
-        alert("Failed to upload image");
+        alert(payload.error || "Failed to upload image");
         return;
       }
-
-      onImageChange((current) => ({
-        ...current,
-        [recipe.id]: payload.url,
-      }));
-      setCurrentImage(payload.url);
+      if (payload.scope === "global") {
+        onGlobalImageChange?.(recipe.id, payload.url);
+      } else {
+        onImageChange((current) => ({ ...current, [recipe.id]: payload.url }));
+      }
     } catch (error) {
       console.error("Upload error:", error);
       alert("Failed to upload image");
+    } finally {
+      setUploading(false);
+      setPreview(null);
+      URL.revokeObjectURL(blobUrl);
+    }
+  };
+
+  const pasteLink = async () => {
+    const url = window.prompt("Paste the image link (https://...)")?.trim();
+    if (!url) return;
+    setUploading(true);
+    try {
+      const res = await fetch("/api/recipe-images", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipeId: recipe.id, url }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(payload.error || "Could not save link");
+        return;
+      }
+      onGlobalImageChange?.(recipe.id, payload.url);
     } finally {
       setUploading(false);
     }
@@ -170,20 +181,21 @@ export function Detail({
 
   const resetImage = async () => {
     try {
-      await fetch(`/api/recipe-images?recipeId=${recipe.id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/recipe-images?recipeId=${recipe.id}`, { method: "DELETE" });
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok && payload.scope === "global") {
+        onGlobalImageChange?.(recipe.id, null);
+      } else if (!res.ok) {
+        alert(payload.error || "Could not reset image");
+      }
     } catch (error) {
       console.error("Delete error:", error);
     }
-
     onImageChange((current) => {
       const next = { ...current };
       delete next[recipe.id];
       return next;
     });
-    setCurrentImage(recipeImage(recipe, images));
-    setCustomImage(false);
   };
 
   // ---- COLLECTIONS ----
@@ -280,40 +292,46 @@ export function Detail({
       <article className="overflow-hidden rounded-[2rem] border border-border bg-card">
         {/* Image / Placeholder */}
         <div className="relative h-[360px] sm:h-[500px]">
-          {currentImage ? (
-            <img
-              src={currentImage}
-              alt={imageAlt(recipe, images)}
-              className="size-full object-cover"
-            />
-          ) : (
-            <RecipePlaceholder
-              name={recipe.name}
-              category={recipe.category}
-              className="h-full !aspect-auto"
-            />
-          )}
+          <RecipeImage
+            recipe={recipe}
+            images={shownImages}
+            showName
+            className="size-full object-cover"
+            placeholderClassName="h-full !aspect-auto"
+          />
 
-          <div className="absolute right-5 top-5 z-10 flex gap-2">
-            <label className="secondary-button cursor-pointer rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition">
-              {uploading ? "Uploading…" : currentImage ? "Change photo" : "Add photo"}
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={chooseImage}
-                disabled={uploading}
-              />
-            </label>
-            {customImage && (
-              <button
-                className="secondary-button rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition"
-                onClick={resetImage}
-              >
-                Reset
-              </button>
-            )}
-          </div>
+          {/* ✅ ADMIN-ONLY BUTTONS */}
+          {canEditImage && (
+            <div className="absolute right-5 top-5 z-10 flex gap-2">
+              <label className="secondary-button cursor-pointer rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition">
+                {uploading ? "Uploading…" : customImage ? "Change photo" : "Add photo"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={chooseImage}
+                  disabled={uploading}
+                />
+              </label>
+              {globalMode && (
+                <button
+                  className="secondary-button rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition"
+                  onClick={pasteLink}
+                  disabled={uploading}
+                >
+                  Paste link
+                </button>
+              )}
+              {customImage && (
+                <button
+                  className="secondary-button rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition"
+                  onClick={resetImage}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-foreground/80 to-transparent p-6 text-background sm:p-10">
             <div className="flex flex-wrap gap-2">
@@ -408,7 +426,6 @@ export function Detail({
                 {favorite ? "Saved" : "Save"}
               </button>
 
-              {/* ✅ COOK BUTTON — logs to DB */}
               <button
                 className="primary-button flex items-center gap-2 rounded-xl bg-accent px-4 py-2 font-semibold text-accent-foreground hover:opacity-90 transition disabled:opacity-60"
                 onClick={handleStartCooking}

@@ -7,8 +7,8 @@ import {
   Coffee, Sun, Moon, Trash2, Loader2, Search, Sparkles
 } from "lucide-react";
 import { Recipe } from "@/lib/recipes";
-import { recipeImage, imageAlt } from "@/lib/image-overrides";
 import { formatCost } from "@/lib/recommendations";
+import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
 
 interface Plan {
   id: string;
@@ -400,11 +400,15 @@ export function Planner({
                               onClick={() => open(recipe)}
                               className="flex w-full items-start gap-3 text-left"
                             >
-                              <img
-                                src={recipeImage(recipe, images) ?? undefined}
-                                alt={imageAlt(recipe, images) ?? recipe.name}
-                                className="size-14 rounded-lg object-cover"
-                              />
+                              {/* ✅ REPLACED WITH RecipeImage */}
+                              <div className="size-14 shrink-0 overflow-hidden rounded-lg">
+                                <RecipeImage
+                                  recipe={recipe}
+                                  images={images}
+                                  className="size-full object-cover"
+                                  placeholderClassName="!aspect-auto h-full"
+                                />
+                              </div>
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-semibold">{recipe.name}</p>
                                 <p className="mt-1 text-xs text-muted-foreground">
@@ -517,11 +521,15 @@ export function Planner({
                       disabled={saving}
                       className="flex items-center gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-accent hover:bg-accent/5 disabled:opacity-50"
                     >
-                      <img
-                        src={recipeImage(r, images) ?? undefined}
-                        alt={imageAlt(r, images)}
-                        className="size-14 rounded-lg object-cover"
-                      />
+                      {/* ✅ REPLACED WITH RecipeImage */}
+                      <div className="size-14 shrink-0 overflow-hidden rounded-lg">
+                        <RecipeImage
+                          recipe={r}
+                          images={images}
+                          className="size-full object-cover"
+                          placeholderClassName="!aspect-auto h-full"
+                        />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{r.name}</p>
                         <p className="mt-1 text-xs text-muted-foreground">

@@ -2,10 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
 
@@ -16,9 +13,7 @@ export async function GET(
     .eq("is_published", true)
     .single();
 
-  if (error || !data) {
-    return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
-  }
+  if (error || !data) return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
 
   const recipe = {
     id: data.id,
@@ -36,11 +31,12 @@ export async function GET(
     difficulty: data.difficulty === "medium" ? "Medium" : "Easy",
     estimatedCost: { min: data.cost_min_kes, max: data.cost_max_kes },
     equipment: ["Sufuria", "Wooden spoon"],
-    // ✅ Pass through real image (may be null)
     image: data.image_url ?? null,
     tags: data.tags ?? [],
-    dietaryInfo: data.dietary_tags ?? [],
-    popularity: data.comrade_score ?? 0,
+    dietaryInfo: data.dietary_tags ?? [],       // ✅ FROM DB
+    allergens: data.allergens ?? [],            // ✅ FROM DB
+    popularity: data.comrade_score ?? 0,        // ✅ FROM DB
+    budgetTier: data.budget_tier ?? 500,        // ✅ FROM DB
     isComradeFriendly: data.is_comrade_friendly ?? false,
   };
 
