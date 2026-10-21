@@ -47,7 +47,6 @@ export async function updateSession(request: NextRequest) {
     "/reset-password",
   ].includes(pathname);
 
-  // FIXED: Added pathname === "/" to prevent redirecting the landing page
   const isPublicPath =
     pathname === "/" ||
     pathname === "/auth/callback" ||
@@ -103,10 +102,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirect);
   }
 
-  // Logged-in users should not revisit auth pages
-  if (user && isAuthPage) {
+  // Logged-in users should not revisit auth pages (Except for password reset)
+  if (user && isAuthPage && pathname !== "/reset-password") {
     const redirect = request.nextUrl.clone();
-    redirect.pathname = "/";
+    redirect.pathname = "/dashboard"; // FIXED: Now goes to dashboard
     redirect.search = "";
     return NextResponse.redirect(redirect);
   }
