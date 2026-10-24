@@ -424,7 +424,10 @@ export function FoodApp({
       browse: "/explore", 
       pantry: "/pantry", 
       planner: "/planner", 
-      meals: "/meals" 
+      meals: "/meals",
+      shopping: "/shopping",  // ✅ Added
+      profile: "/profile",    // ✅ Added
+      settings: "/settings",  // ✅ Added
     };
     if (paths[target]) router.push(paths[target] as string);
   };
