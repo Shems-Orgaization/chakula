@@ -1,11 +1,12 @@
 // app/login/page.tsx
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { MESSAGES, errorMessage } from "@/lib/messages";
+import { MESSAGES } from "@/lib/messages";
+import { Loader2 } from "lucide-react";
 import {
   AuthShell,
   Captcha,
@@ -17,7 +18,8 @@ import {
   TextField,
 } from "@/components/auth-shell";
 
-export default function LoginPage() {
+// 1. We pull the actual form into its own component
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextRoute = searchParams.get("next") || "/dashboard";
@@ -69,17 +71,12 @@ export default function LoginPage() {
       return;
     }
 
-    // Redirect to intended page or dashboard
     router.replace(nextRoute);
     router.refresh();
   }
 
   return (
-    <AuthShell
-      variant="login"
-      headline="Welcome back to your kitchen."
-      text="Sign in to pick up your meals, pantry and plans right where you left off."
-    >
+    <>
       <h1 className="font-serif text-4xl tracking-tight">Welcome back.</h1>
       <p className="mt-3 leading-6 text-muted-foreground">
         Sign in to keep your meals, pantry, planner and preferences synced.
@@ -136,6 +133,21 @@ export default function LoginPage() {
           Create account
         </Link>
       </p>
+    </>
+  );
+}
+
+// 2. The default export wraps the form in Suspense to satisfy Next.js
+export default function LoginPage() {
+  return (
+    <AuthShell
+      variant="login"
+      headline="Welcome back to your kitchen."
+      text="Sign in to pick up your meals, pantry and plans right where you left off."
+    >
+      <Suspense fallback={<div className="flex h-64 items-center justify-center"><Loader2 className="size-8 animate-spin text-accent" /></div>}>
+        <LoginForm />
+      </Suspense>
     </AuthShell>
   );
 }
