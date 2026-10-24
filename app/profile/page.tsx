@@ -1,9 +1,8 @@
-import { ProfileComponent } from "@/components/views/profile";
+// app/profile/page.tsx
+"use client";
+
+import { FoodApp } from "@/components/food-app";
 
 export default function ProfilePage() {
-  return (
-    <main className="mx-auto max-w-[1280px] px-5 py-8 sm:px-8 lg:px-12 lg:py-12">
-      <ProfileComponent />
-    </main>
-  );
+  return <FoodApp initialView="profile" />;
 }
