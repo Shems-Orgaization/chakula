@@ -5,7 +5,17 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { AuthShell, FormMessage, PasswordField, SubmitButton, TextField } from "@/components/auth-shell";
+import { MESSAGES } from "@/lib/messages";
+import {
+  AuthShell,
+  Captcha,
+  captchaEnabled,
+  FormMessage,
+  GoogleButton,
+  PasswordField,
+  SubmitButton,
+  TextField,
+} from "@/components/auth-shell";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -16,15 +26,21 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setMessage("");
+
     if (name.trim().length < 2) return setError("Please enter your full name.");
-    if (password.length < 8)
-      return setError("Password must be at least 8 characters.");
-    if (password !== confirm) return setError("Passwords do not match.");
+    if (password.length < 8) return setError(MESSAGES.auth.passwordTooShort);
+    if (password !== confirm) return setError(MESSAGES.auth.passwordMismatch);
+    if (captchaEnabled && !captchaToken) {
+      return setError("Please wait for the security check to finish, then try again.");
+    }
+
     setLoading(true);
     const { data, error: authError } = await createClient().auth.signUp({
       email,
@@ -34,15 +50,20 @@ export default function SignupPage() {
           process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
           `${window.location.origin}/auth/callback`,
         data: { display_name: name.trim() },
+        captchaToken: captchaToken ?? undefined,
       },
     });
+    
     setLoading(false);
-    if (authError)
-      return setError(
-        authError.message.toLowerCase().includes("already")
-          ? "An account may already exist for this email."
-          : "Unable to create your account. Please check your details.",
-      );
+    setCaptchaToken(null);
+    setCaptchaReset((n) => n + 1);
+
+    if (authError) {
+      if (authError.message.toLowerCase().includes("already")) {
+        return setError(MESSAGES.auth.emailInUse);
+      }
+      return setError(MESSAGES.network.generic);
+    }
 
     if (data.session) router.replace("/dashboard");
     else
@@ -63,6 +84,8 @@ export default function SignupPage() {
       </p>
 
       <form onSubmit={submit} className="mt-8 grid gap-5">
+        <GoogleButton label="Sign up with Google" onError={() => setError(MESSAGES.network.generic)} />
+
         <TextField
           id="name"
           label="Full name"
@@ -97,6 +120,8 @@ export default function SignupPage() {
           onChange={setConfirm}
           autoComplete="new-password"
         />
+
+        <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />
 
         {error && <FormMessage kind="error">{error}</FormMessage>}
         {message && <FormMessage kind="success">{message}</FormMessage>}

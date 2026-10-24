@@ -4,9 +4,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
+import { MESSAGES, errorMessage } from "@/lib/messages";
+import { Captcha, captchaEnabled } from "@/components/auth-shell";
 import {
   Save, Mail, Calendar, Heart, UtensilsCrossed, ShoppingBag,
-  Loader2, ArrowLeft, Lock, Eye, EyeOff, Check, Leaf, AlertCircle
+  Loader2, Lock, Eye, EyeOff, Check, Leaf, AlertCircle
 } from "lucide-react";
 
 function initialsFrom(name: string, email: string) {
@@ -16,13 +19,29 @@ function initialsFrom(name: string, email: string) {
   return letters.join("") || "C";
 }
 
+function FormMessage({ type, children }: { type: "error" | "success"; children: React.ReactNode }) {
+  if (!children) return null;
+  return (
+    <p
+      role={type === "error" ? "alert" : "status"}
+      className={`mt-3 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
+        type === "error"
+          ? "border-destructive/30 bg-destructive/5 text-destructive"
+          : "border-green-500/30 bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400"
+      }`}
+    >
+      {type === "success" && <Check className="size-4 shrink-0" />}
+      {type === "error" && <AlertCircle className="size-4 shrink-0" />}
+      {children}
+    </p>
+  );
+}
+
 export function ProfileComponent() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [displayName, setDisplayName] = useState("");
   const [memberSince, setMemberSince] = useState<string | null>(null);
@@ -39,15 +58,23 @@ export function ProfileComponent() {
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
+  
+  // Captcha State
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
-  useEffect(() => { loadProfile(); }, []);
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
   async function loadProfile() {
     try {
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
+      
       setUser(user);
       setDisplayName(user.user_metadata?.display_name || "");
       setDietaryPrefs(user.user_metadata?.dietary_preferences || []);
@@ -67,44 +94,93 @@ export function ProfileComponent() {
       const { count: planCount } = await supabase.from("user_meal_plans").select("*", { count: "exact", head: true }).eq("user_id", user.id);
       setStats((prev) => ({ ...prev, mealPlans: planCount || 0 }));
     } catch (error) {
-      console.error("Error loading profile:", error);
-    } finally { setLoading(false); }
+      toast.error(MESSAGES.network.generic);
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   async function saveProfile() {
     if (!user) return;
     setSaving(true);
-    setSaved(false);
     try {
-      await supabase.auth.updateUser({ data: { display_name: displayName } });
-      await supabase.from("profiles").upsert({ id: user.id, display_name: displayName, updated_at: new Date().toISOString() });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      const supabase = createClient();
+      
+      const { error: authError } = await supabase.auth.updateUser({ 
+        data: { display_name: displayName } 
+      });
+      
+      if (authError) {
+        toast.error(errorMessage(authError.status, authError.code));
+        return;
+      }
+
+      const { error: dbError } = await supabase.from("profiles").upsert({ 
+        id: user.id, 
+        display_name: displayName, 
+        updated_at: new Date().toISOString() 
+      });
+
+      if (dbError) {
+        toast.error(errorMessage(dbError.status, dbError.code));
+        return;
+      }
+
+      toast.success("Profile updated successfully.");
     } catch (error) {
-      console.error(error);
-      alert("Could not save your profile. Please try again.");
-    } finally { setSaving(false); }
+      toast.error(MESSAGES.network.generic);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function changePassword() {
-    setPasswordError(null); setPasswordSuccess(false);
+    setPasswordError(null); 
+    setPasswordSuccess(null);
+    
     if (!currentPassword || !newPassword || !confirmPassword) return setPasswordError("Please fill in all three fields.");
-    if (newPassword.length < 8) return setPasswordError("New password must be at least 8 characters.");
-    if (newPassword !== confirmPassword) return setPasswordError("New passwords don't match.");
+    if (newPassword.length < 8) return setPasswordError(MESSAGES.auth.passwordTooShort);
+    if (newPassword !== confirmPassword) return setPasswordError(MESSAGES.auth.passwordMismatch);
     if (newPassword === currentPassword) return setPasswordError("New password must be different from the current one.");
+    if (captchaEnabled && !captchaToken) return setPasswordError("Please wait for the security check to finish, then try again.");
 
     setPasswordSaving(true);
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
-      if (signInError) { setPasswordError("Current password is incorrect."); setPasswordSaving(false); return; }
+      const supabase = createClient();
+      
+      const { error: signInError } = await supabase.auth.signInWithPassword({ 
+        email: user.email, 
+        password: currentPassword,
+        options: { captchaToken: captchaToken ?? undefined }
+      });
+      
+      // Token works only once
+      setCaptchaToken(null);
+      setCaptchaReset((n) => n + 1);
+
+      if (signInError) { 
+        setPasswordError(MESSAGES.auth.currentPasswordIncorrect); 
+        return; 
+      }
       
       const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-      if (updateError) { setPasswordError(updateError.message); setPasswordSaving(false); return; }
+      
+      if (updateError) { 
+        setPasswordError(errorMessage(updateError.status, updateError.code)); 
+        return; 
+      }
 
-      setPasswordSuccess(true); setCurrentPassword(""); setNewPassword(""); setConfirmPassword(""); setShowPasswordForm(false);
-      setTimeout(() => setPasswordSuccess(false), 4000);
-    } catch (err: any) { setPasswordError(err.message || "Could not change password."); } 
-    finally { setPasswordSaving(false); }
+      setPasswordSuccess(MESSAGES.auth.passwordResetSuccess);
+      toast.success(MESSAGES.auth.passwordResetSuccess);
+      setCurrentPassword(""); 
+      setNewPassword(""); 
+      setConfirmPassword(""); 
+      setTimeout(() => { setShowPasswordForm(false); setPasswordSuccess(null); }, 4000);
+    } catch (err: any) { 
+      setPasswordError(MESSAGES.network.generic); 
+    } finally { 
+      setPasswordSaving(false); 
+    }
   }
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="size-8 animate-spin text-accent" /></div>;
@@ -134,11 +210,11 @@ export function ProfileComponent() {
           </div>
           <button onClick={saveProfile} disabled={saving} className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60">
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+            {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
 
-        {/* ✅ NEW: Dietary Profile Display */}
+        {/* Dietary Profile Display */}
         <div className="border-b border-border pb-6">
           <p className="eyebrow mb-4">Dietary Profile</p>
           <div className="flex flex-col sm:flex-row gap-6">
@@ -178,16 +254,21 @@ export function ProfileComponent() {
           {!showPasswordForm && <button onClick={() => setShowPasswordForm(true)} className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold transition hover:bg-secondary">Change password</button>}
         </div>
 
-        {passwordSuccess && <div className="mt-5 flex items-center gap-2 rounded-xl border border-green-500/30 bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-950/20"><Check className="size-4 shrink-0" /> Password updated successfully.</div>}
-
         {showPasswordForm && (
           <div className="mt-5 flex flex-col gap-4">
             <PasswordField label="Current password" value={currentPassword} setValue={setCurrentPassword} show={showCurrent} setShow={setShowCurrent} autoComplete="current-password" />
             <PasswordField label="New password" value={newPassword} setValue={setNewPassword} show={showNew} setShow={setShowNew} autoComplete="new-password" />
             <PasswordField label="Confirm new password" value={confirmPassword} setValue={setConfirmPassword} show={showConfirm} setShow={setShowConfirm} autoComplete="new-password" />
-            {passwordError && <p className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{passwordError}</p>}
-            <div className="flex gap-2">
-              <button onClick={changePassword} disabled={passwordSaving} className="flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-60">{passwordSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Update</button>
+            
+            <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />
+
+            {passwordError && <FormMessage type="error">{passwordError}</FormMessage>}
+            {passwordSuccess && <FormMessage type="success">{passwordSuccess}</FormMessage>}
+            
+            <div className="flex gap-2 mt-2">
+              <button onClick={changePassword} disabled={passwordSaving} className="flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-60">
+                {passwordSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Update
+              </button>
               <button onClick={() => setShowPasswordForm(false)} className="rounded-xl border border-border px-5 py-2.5 font-semibold hover:bg-secondary">Cancel</button>
             </div>
           </div>

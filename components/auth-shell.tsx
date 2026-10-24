@@ -7,6 +7,7 @@ import {
   ArrowLeft, Check, ChefHat, Clock3, Eye, EyeOff, Loader2,
   Moon, Sun, Utensils, Wallet,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 const inputBase =
   "h-12 w-full rounded-xl border border-border bg-background px-4 text-base outline-none transition placeholder:text-muted-foreground/70 focus:border-accent focus:ring-2 focus:ring-accent/20";
@@ -290,14 +291,16 @@ export function PasswordField({
   );
 }
 
-export function FormMessage({ kind, children }: { kind: "error" | "success"; children: ReactNode }) {
+export function FormMessage({ kind, children }: { kind: "error" | "success" | "info"; children: ReactNode }) {
   return (
     <p
       role={kind === "error" ? "alert" : "status"}
       className={`rounded-xl border px-4 py-3 text-sm ${
         kind === "error"
           ? "border-destructive/30 bg-destructive/5 text-destructive"
-          : "border-accent/30 bg-accent/5 text-foreground"
+          : kind === "info"
+            ? "border-border bg-secondary text-foreground"
+            : "border-accent/30 bg-accent/5 text-foreground"
       }`}
     >
       {children}
@@ -323,5 +326,135 @@ export function SubmitButton({
       {loading && <Loader2 className="size-4 animate-spin" />}
       {loading ? loadingText : children}
     </button>
+  );
+}
+
+// ---------- Optional sign-in helpers ----------
+// Both switch on by themselves when their env var is set. Until then the forms work as before.
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (el: HTMLElement, options: Record<string, unknown>) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId?: string) => void;
+    };
+  }
+}
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+const TURNSTILE_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+
+/** True only when NEXT_PUBLIC_TURNSTILE_SITE_KEY is set. */
+export const captchaEnabled = Boolean(TURNSTILE_SITE_KEY);
+
+/** True only when NEXT_PUBLIC_GOOGLE_AUTH_ENABLED is "true" (set it after Google is enabled in Supabase). */
+export const googleEnabled = process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === "true";
+
+/** Cloudflare Turnstile. A token works once, so bump resetKey after every submit. */
+export function Captcha({
+  onToken,
+  resetKey,
+}: {
+  onToken: (token: string | null) => void;
+  resetKey: number;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const widgetId = useRef<string | null>(null);
+  const onTokenRef = useRef(onToken);
+
+  useEffect(() => {
+    onTokenRef.current = onToken;
+  });
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return;
+    let cancelled = false;
+
+    const mount = () => {
+      if (cancelled || widgetId.current || !box.current || !window.turnstile) return;
+      widgetId.current = window.turnstile.render(box.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        theme: "auto",
+        callback: (token: string) => onTokenRef.current(token),
+        "expired-callback": () => onTokenRef.current(null),
+        "error-callback": () => onTokenRef.current(null),
+      });
+    };
+
+    let script: HTMLScriptElement | null = null;
+    if (window.turnstile) {
+      mount();
+    } else {
+      script = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SRC}"]`);
+      if (!script) {
+        script = document.createElement("script");
+        script.src = TURNSTILE_SRC;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+      script.addEventListener("load", mount);
+    }
+
+    return () => {
+      cancelled = true;
+      script?.removeEventListener("load", mount);
+      if (widgetId.current && window.turnstile) window.turnstile.remove(widgetId.current);
+      widgetId.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (resetKey > 0 && widgetId.current && window.turnstile) {
+      window.turnstile.reset(widgetId.current);
+    }
+  }, [resetKey]);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div ref={box} className="flex justify-center" />;
+}
+
+/** "Continue with Google" button plus an "or" divider. Renders nothing until googleEnabled. */
+export function GoogleButton({
+  label,
+  onError,
+}: {
+  label: string;
+  onError: (message: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  if (!googleEnabled) return null;
+
+  async function start() {
+    setLoading(true);
+    const { error } = await createClient().auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
+    });
+    // On success the browser leaves this page, so only a failure needs handling here.
+    if (error) {
+      setLoading(false);
+      onError("Google sign-in is not available right now. Please use your email.");
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={start}
+        disabled={loading}
+        className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-background px-6 text-sm font-semibold transition hover:bg-secondary disabled:opacity-60 ${ring}`}
+      >
+        {loading && <Loader2 className="size-4 animate-spin" />}
+        {loading ? "Opening Google…" : label}
+      </button>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        or
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    </>
   );
 }

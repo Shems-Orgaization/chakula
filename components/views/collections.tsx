@@ -4,13 +4,15 @@
 import { useEffect, useState } from "react";
 import {
   Plus, X, Loader2, MoreVertical, Edit3, Trash2,
-  Library, BookOpen, ChevronLeft, Check, Search, FolderPlus,
+  Library, BookOpen, ChevronLeft, Search, FolderPlus,
   Heart, PartyPopper, Utensils, Salad, Beef, Soup, Cake, Pizza,
   Coffee, Flame, Star, Sparkles, Award, Gift, CakeSlice
 } from "lucide-react";
+import { toast } from "sonner";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
-import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
+import { RecipeImage } from "@/components/recipe-image";
+import { apiClient } from "@/lib/api-client";
 
 interface Collection {
   id: string;
@@ -28,69 +30,28 @@ interface CollectionsProps {
   images?: Record<string, string>;
 }
 
-// Map icon keys to Lucide components
 const ICON_MAP: Record<string, any> = {
-  library: Library,
-  heart: Heart,
-  party: PartyPopper,
-  utensils: Utensils,
-  salad: Salad,
-  beef: Beef,
-  soup: Soup,
-  cake: CakeSlice,
-  pizza: Pizza,
-  coffee: Coffee,
-  flame: Flame,
-  star: Star,
-  sparkles: Sparkles,
-  award: Award,
-  gift: Gift,
-  book: BookOpen,
+  library: Library, heart: Heart, party: PartyPopper, utensils: Utensils,
+  salad: Salad, beef: Beef, soup: Soup, cake: CakeSlice, pizza: Pizza,
+  coffee: Coffee, flame: Flame, star: Star, sparkles: Sparkles,
+  award: Award, gift: Gift, book: BookOpen,
 };
 
 const ICON_OPTIONS = [
-  "library", "heart", "party", "utensils",
-  "salad", "beef", "soup", "cake",
-  "pizza", "coffee", "flame", "star",
+  "library", "heart", "party", "utensils", "salad", "beef", "soup", "cake", "pizza", "coffee", "flame", "star",
 ];
 
 const COLOR_OPTIONS = ["orange", "red", "green", "blue", "purple", "yellow"];
 
-// Subtle tint backgrounds (no loud gradients)
 const COLOR_STYLES: Record<string, { bg: string; icon: string; dot: string }> = {
-  orange: {
-    bg: "bg-orange-50 dark:bg-orange-950/30",
-    icon: "text-orange-600 dark:text-orange-400",
-    dot: "bg-orange-500",
-  },
-  red: {
-    bg: "bg-red-50 dark:bg-red-950/30",
-    icon: "text-red-600 dark:text-red-400",
-    dot: "bg-red-500",
-  },
-  green: {
-    bg: "bg-green-50 dark:bg-green-950/30",
-    icon: "text-green-600 dark:text-green-400",
-    dot: "bg-green-500",
-  },
-  blue: {
-    bg: "bg-blue-50 dark:bg-blue-950/30",
-    icon: "text-blue-600 dark:text-blue-400",
-    dot: "bg-blue-500",
-  },
-  purple: {
-    bg: "bg-purple-50 dark:bg-purple-950/30",
-    icon: "text-purple-600 dark:text-purple-400",
-    dot: "bg-purple-500",
-  },
-  yellow: {
-    bg: "bg-yellow-50 dark:bg-yellow-950/30",
-    icon: "text-yellow-600 dark:text-yellow-400",
-    dot: "bg-yellow-500",
-  },
+  orange: { bg: "bg-orange-50 dark:bg-orange-950/30", icon: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500" },
+  red: { bg: "bg-red-50 dark:bg-red-950/30", icon: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
+  green: { bg: "bg-green-50 dark:bg-green-950/30", icon: "text-green-600 dark:text-green-400", dot: "bg-green-500" },
+  blue: { bg: "bg-blue-50 dark:bg-blue-950/30", icon: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500" },
+  purple: { bg: "bg-purple-50 dark:bg-purple-950/30", icon: "text-purple-600 dark:text-purple-400", dot: "bg-purple-500" },
+  yellow: { bg: "bg-yellow-50 dark:bg-yellow-950/30", icon: "text-yellow-600 dark:text-yellow-400", dot: "bg-yellow-500" },
 };
 
-// Helper to render icon
 export function CollectionIcon({ icon, className = "size-5" }: { icon: string; className?: string }) {
   const Icon = ICON_MAP[icon] || Library;
   return <Icon className={className} />;
@@ -99,13 +60,12 @@ export function CollectionIcon({ icon, className = "size-5" }: { icon: string; c
 export function Collections({ open, images = {} }: CollectionsProps) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [openCollectionId, setOpenCollectionId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Create form
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newIcon, setNewIcon] = useState("library");
@@ -113,32 +73,25 @@ export function Collections({ open, images = {} }: CollectionsProps) {
 
   const loadCollections = async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/collections");
-      const data = await res.json();
-      setCollections(data.collections ?? []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+    const res = await apiClient("/api/collections");
+    if (res.ok) {
+      setCollections(res.data.collections ?? []);
+    } else {
+      toast.error(res.error);
     }
+    setLoading(false);
   };
 
   useEffect(() => {
     loadCollections();
   }, []);
 
-  const showNotice = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(null), 2500);
-  };
-
   const createCollection = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || saving) return;
+    setSaving(true);
 
-    const res = await fetch("/api/collections", {
+    const res = await apiClient("/api/collections", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: newName.trim(),
         description: newDescription.trim(),
@@ -154,16 +107,19 @@ export function Collections({ open, images = {} }: CollectionsProps) {
       setNewDescription("");
       setNewIcon("library");
       setNewColor("orange");
-      showNotice("Collection created");
+      toast.success("Collection created");
+    } else {
+      toast.error(res.error);
     }
+    setSaving(false);
   };
 
   const updateCollection = async () => {
-    if (!editingCollection) return;
+    if (!editingCollection || saving) return;
+    setSaving(true);
 
-    await fetch("/api/collections", {
+    const res = await apiClient("/api/collections", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: editingCollection.id,
         name: newName.trim(),
@@ -173,18 +129,31 @@ export function Collections({ open, images = {} }: CollectionsProps) {
       }),
     });
 
-    await loadCollections();
-    setEditingCollection(null);
-    showNotice("Collection updated");
+    if (res.ok) {
+      await loadCollections();
+      setEditingCollection(null);
+      toast.success("Collection updated");
+    } else {
+      toast.error(res.error);
+    }
+    setSaving(false);
   };
 
   const deleteCollection = async (id: string) => {
     if (!confirm("Delete this collection? Recipes won't be deleted.")) return;
 
-    await fetch(`/api/collections?id=${id}`, { method: "DELETE" });
+    const previous = [...collections];
     setCollections((prev) => prev.filter((c) => c.id !== id));
     setOpenMenuId(null);
-    showNotice("Collection deleted");
+
+    const res = await apiClient(`/api/collections?id=${id}`, { method: "DELETE" });
+
+    if (res.ok) {
+      toast.success("Collection deleted");
+    } else {
+      setCollections(previous);
+      toast.error(res.error);
+    }
   };
 
   const startEdit = (c: Collection) => {
@@ -283,17 +252,11 @@ export function Collections({ open, images = {} }: CollectionsProps) {
                 {c.previewImages.length > 0 && (
                   <div className="flex gap-1 px-6 pb-4 pt-3">
                     {c.previewImages.slice(0, 4).map((url, i) => (
-                      <img
-                        key={i}
-                        src={url}
-                        alt=""
-                        className="h-14 flex-1 rounded-lg object-cover"
-                      />
+                      <img key={i} src={url} alt="" className="h-14 flex-1 rounded-lg object-cover" />
                     ))}
                   </div>
                 )}
 
-                {/* Menu button */}
                 <div className="absolute right-2 top-2">
                   <button
                     onClick={(e) => {
@@ -329,7 +292,6 @@ export function Collections({ open, images = {} }: CollectionsProps) {
             );
           })}
 
-          {/* Create card */}
           <button
             onClick={() => setShowCreate(true)}
             className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border bg-card p-6 text-center transition hover:border-accent hover:bg-accent/5"
@@ -341,7 +303,6 @@ export function Collections({ open, images = {} }: CollectionsProps) {
         </div>
       )}
 
-      {/* Create / Edit modal */}
       {(showCreate || editingCollection) && (
         <CollectionFormModal
           isEdit={Boolean(editingCollection)}
@@ -355,19 +316,13 @@ export function Collections({ open, images = {} }: CollectionsProps) {
           setColor={setNewColor}
           onCancel={resetForm}
           onSubmit={editingCollection ? updateCollection : createCollection}
+          saving={saving}
         />
-      )}
-
-      {notice && (
-        <div className="fixed bottom-5 right-5 z-[90] rounded-2xl border border-border bg-card px-4 py-3 shadow-xl">
-          <p className="text-sm font-medium">{notice}</p>
-        </div>
       )}
     </div>
   );
 }
 
-// ============ EMPTY STATE ============
 function EmptyCollections({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-16 text-center">
@@ -387,7 +342,6 @@ function EmptyCollections({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-// ============ COLLECTION DETAIL ============
 function CollectionDetail({
   collection,
   onBack,
@@ -407,15 +361,13 @@ function CollectionDetail({
 
   const loadItems = async () => {
     setLoading(true);
-    try {
-      const res = await fetch(`/api/collections/${collection.id}`);
-      const data = await res.json();
-      setItems(data.items ?? []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+    const res = await apiClient(`/api/collections/${collection.id}`);
+    if (res.ok) {
+      setItems(res.data.items ?? []);
+    } else {
+      toast.error(res.error);
     }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -424,11 +376,18 @@ function CollectionDetail({
 
   const removeItem = async (recipeId: string) => {
     if (!confirm("Remove from collection?")) return;
+    
+    const previous = [...items];
     setItems((prev) => prev.filter((i) => i.recipe_id !== recipeId));
-    await fetch(
-      `/api/collections/${collection.id}?recipe_id=${recipeId}`,
-      { method: "DELETE" }
-    );
+
+    const res = await apiClient(`/api/collections/${collection.id}?recipe_id=${recipeId}`, { method: "DELETE" });
+    
+    if (res.ok) {
+      toast.success("Recipe removed from collection");
+    } else {
+      setItems(previous);
+      toast.error(res.error);
+    }
   };
 
   const filtered = items.filter((item) =>
@@ -497,12 +456,7 @@ function CollectionDetail({
             return (
               <div key={item.id} className="group relative overflow-hidden rounded-2xl border border-border bg-card transition hover:shadow-lg">
                 <button onClick={() => open(r)} className="block w-full">
-                  {/* ✅ REPLACED WITH RecipeImage */}
-                  <RecipeImage
-                    recipe={r}
-                    images={images}
-                    className="aspect-[1.2] w-full object-cover"
-                  />
+                  <RecipeImage recipe={r} images={images} className="aspect-[1.2] w-full object-cover" />
                 </button>
                 <button
                   onClick={() => removeItem(r.id)}
@@ -528,19 +482,9 @@ function CollectionDetail({
   );
 }
 
-// ============ FORM MODAL ============
 function CollectionFormModal({
-  isEdit,
-  name,
-  setName,
-  description,
-  setDescription,
-  icon,
-  setIcon,
-  color,
-  setColor,
-  onCancel,
-  onSubmit,
+  isEdit, name, setName, description, setDescription,
+  icon, setIcon, color, setColor, onCancel, onSubmit, saving
 }: any) {
   const style = COLOR_STYLES[color] || COLOR_STYLES.orange;
 
@@ -558,9 +502,7 @@ function CollectionFormModal({
 
         <div className="max-h-[70vh] overflow-y-auto p-5">
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Name
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</span>
             <input
               autoFocus
               value={name}
@@ -571,9 +513,7 @@ function CollectionFormModal({
           </label>
 
           <label className="mt-5 block">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Description (optional)
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description (optional)</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -583,11 +523,8 @@ function CollectionFormModal({
             />
           </label>
 
-          {/* Icon picker */}
           <div className="mt-5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Icon
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Icon</span>
             <div className="mt-2 grid grid-cols-6 gap-2">
               {ICON_OPTIONS.map((i) => {
                 const IconComp = ICON_MAP[i] || Library;
@@ -598,9 +535,7 @@ function CollectionFormModal({
                     type="button"
                     onClick={() => setIcon(i)}
                     className={`flex aspect-square items-center justify-center rounded-xl border-2 transition ${
-                      selected
-                        ? "border-accent bg-accent/10"
-                        : "border-border hover:border-accent/50"
+                      selected ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
                     }`}
                   >
                     <IconComp className={`size-5 ${selected ? "text-accent" : "text-muted-foreground"}`} />
@@ -610,11 +545,8 @@ function CollectionFormModal({
             </div>
           </div>
 
-          {/* Color picker */}
           <div className="mt-5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Color
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Color</span>
             <div className="mt-2 flex flex-wrap gap-2">
               {COLOR_OPTIONS.map((c) => {
                 const cStyle = COLOR_STYLES[c];
@@ -635,11 +567,8 @@ function CollectionFormModal({
             </div>
           </div>
 
-          {/* Preview */}
           <div className="mt-6">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Preview
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preview</p>
             <div className={`mt-2 rounded-2xl border border-border ${style.bg} p-5`}>
               <div className={`flex size-12 items-center justify-center rounded-xl bg-background/80 ${style.icon}`}>
                 {(() => {
@@ -647,29 +576,23 @@ function CollectionFormModal({
                   return <IconComp className="size-6" />;
                 })()}
               </div>
-              <h3 className="mt-3 font-serif text-2xl truncate">
-                {name || "Collection name"}
-              </h3>
-              {description && (
-                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{description}</p>
-              )}
+              <h3 className="mt-3 font-serif text-2xl truncate">{name || "Collection name"}</h3>
+              {description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{description}</p>}
               <p className="mt-2 text-xs text-muted-foreground">0 recipes</p>
             </div>
           </div>
         </div>
 
         <div className="flex gap-2 border-t border-border p-5">
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-xl border border-border px-4 py-3 font-semibold transition hover:bg-secondary"
-          >
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-border px-4 py-3 font-semibold transition hover:bg-secondary">
             Cancel
           </button>
           <button
             onClick={onSubmit}
-            disabled={!name.trim()}
-            className="flex-1 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
+            disabled={!name.trim() || saving}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
           >
+            {saving && <Loader2 className="size-4 animate-spin" />}
             {isEdit ? "Save Changes" : "Create Collection"}
           </button>
         </div>

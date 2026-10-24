@@ -2,10 +2,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+const MAX_ITEMS = 500;
+const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+
 async function context() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   return { supabase, user };
+}
+
+function errJson(message: string, code: string, status: number) {
+  return NextResponse.json({ error: message, code }, { status });
 }
 
 // GET — collection details with full recipes
@@ -14,34 +21,42 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (typeof id !== "string" || !ID_RE.test(id)) {
+    return errJson("Not found", "id_invalid", 404);
+  }
   const { supabase, user } = await context();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user) return errJson("Unauthorized", "unauthorized", 401);
 
-  // Get collection
-  const { data: collection } = await supabase
+  const { data: collection, error: cErr } = await supabase
     .from("user_collections")
     .select("*")
     .eq("id", id)
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (!collection) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (cErr) return errJson("Unable to load.", "db_error", 500);
+  if (!collection) return errJson("Not found", "not_found", 404);
 
-  // Get items
-  const { data: items } = await supabase
+  const { data: items, error: iErr } = await supabase
     .from("user_collection_items")
     .select("*")
     .eq("collection_id", id)
-    .order("added_at", { ascending: false });
+    .eq("user_id", user.id)
+    .order("added_at", { ascending: false })
+    .limit(MAX_ITEMS);
 
-  // Enrich with recipe data
+  if (iErr) return errJson("Unable to load.", "db_error", 500);
+
   const recipeIds = (items ?? [])
     .map((i) => i.recipe_id)
-    .filter((id): id is string => Boolean(id));
+    .filter((rid): rid is string => typeof rid === "string" && rid.length > 0)
+    .slice(0, MAX_ITEMS);
 
-  const { data: recipes } = recipeIds.length
-    ? await supabase.from("recipes").select("*").in("id", recipeIds)
-    : { data: [] };
+  const { data: recipes, error: rErr } = recipeIds.length
+    ? await supabase.from("recipes").select("*").in("id", recipeIds).limit(MAX_ITEMS)
+    : { data: [], error: null };
+
+  if (rErr) return errJson("Unable to load.", "db_error", 500);
 
   const recipesMap: Record<string, any> = {};
   for (const r of recipes ?? []) {
@@ -67,14 +82,11 @@ export async function GET(
   const enrichedItems = (items ?? [])
     .map((item) => ({
       ...item,
-      recipe: item.recipe_id ? recipesMap[item.recipe_id] : null,
+      recipe: item.recipe_id ? recipesMap[item.recipe_id] ?? null : null,
     }))
     .filter((item) => item.recipe);
 
-  return NextResponse.json({
-    collection,
-    items: enrichedItems,
-  });
+  return NextResponse.json({ collection, items: enrichedItems });
 }
 
 // DELETE — remove item from collection
@@ -83,11 +95,27 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (typeof id !== "string" || !ID_RE.test(id)) {
+    return errJson("id invalid", "id_invalid", 400);
+  }
   const { supabase, user } = await context();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user) return errJson("Unauthorized", "unauthorized", 401);
 
-  const recipeId = request.nextUrl.searchParams.get("recipe_id");
-  if (!recipeId) return NextResponse.json({ error: "recipe_id required" }, { status: 400 });
+  const rawRecipeId = request.nextUrl.searchParams.get("recipe_id");
+  if (!rawRecipeId || !ID_RE.test(rawRecipeId)) {
+    return errJson("recipe_id required", "recipe_id_required", 400);
+  }
+  const recipeId = rawRecipeId;
+
+  // Verify collection belongs to user before delete (rule 4).
+  const { data: own, error: ownErr } = await supabase
+    .from("user_collections")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (ownErr) return errJson("Unable to remove.", "db_error", 500);
+  if (!own) return errJson("Not found", "not_found", 404);
 
   const { error } = await supabase
     .from("user_collection_items")
@@ -96,6 +124,6 @@ export async function DELETE(
     .eq("recipe_id", recipeId)
     .eq("user_id", user.id);
 
-  if (error) return NextResponse.json({ error: "Unable to remove." }, { status: 500 });
+  if (error) return errJson("Unable to remove.", "db_error", 500);
   return new NextResponse(null, { status: 204 });
 }
