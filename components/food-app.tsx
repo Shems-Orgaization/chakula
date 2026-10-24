@@ -246,8 +246,6 @@ export function FoodApp({
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
     localStorage.setItem("food-theme", JSON.stringify(dark ? "dark" : "light"));
 
-    // Background sync. We don't show a toast on success to avoid spamming the user.
-    // We only show an error if the sync fails silently in the background.
     void apiClient("/api/preferences", {
       method: "PATCH",
       body: JSON.stringify({
@@ -261,7 +259,6 @@ export function FoodApp({
       }),
     }).then(res => {
       if (!res.ok && res.status !== 401) {
-        // Ignore 401s here (apiClient handles redirect)
         toast.error("Failed to sync preferences to the cloud. Your changes are saved locally.");
       }
     });
@@ -274,7 +271,7 @@ export function FoodApp({
     if (view !== "shopping" || !userId) return;
     (async () => {
       const listsRes = await apiClient("/api/shopping-lists");
-      if (!listsRes.ok) return; // Silent fail, shopping page will show its own error
+      if (!listsRes.ok) return;
 
       const lists: any[] = listsRes.data.lists ?? [];
       const todayStr = new Date().toISOString().split("T")[0];
@@ -299,7 +296,7 @@ export function FoodApp({
     let cancelled = false;
     const checkReminders = async () => {
       const res = await apiClient("/api/reminders");
-      if (!res.ok) return; // Silent fail for background checker
+      if (!res.ok) return;
       
       const settings = res.data.settings ?? [];
       const history = res.data.history ?? [];
@@ -425,9 +422,9 @@ export function FoodApp({
       pantry: "/pantry", 
       planner: "/planner", 
       meals: "/meals",
-      shopping: "/shopping",  // ✅ Added
-      profile: "/profile",    // ✅ Added
-      settings: "/settings",  // ✅ Added
+      shopping: "/shopping",
+      profile: "/profile",
+      settings: "/settings",
     };
     if (paths[target]) router.push(paths[target] as string);
   };
