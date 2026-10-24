@@ -1,5 +1,5 @@
 // lib/meal-images.ts
-const MEAL_IMAGE_BACKUPS: Record<string, string> = {};
+import { MEAL_IMAGE_BACKUPS } from "@/lib/meal-image-backups";
 
 export const LOCAL_IMAGE_DIR = "/meal-images"; // = public/meal-images/
 const LOCAL_EXTENSIONS = ["jpg", "webp", "png", "jpeg"];

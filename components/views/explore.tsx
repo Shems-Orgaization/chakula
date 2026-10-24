@@ -26,6 +26,7 @@ interface ExploreProps {
   loading?: boolean;
 }
 
+// Every category used by the v2 catalogue, so no meal is unreachable from the pills.
 const CATEGORIES = [
   "All",
   "Comrade Favorites",
@@ -38,6 +39,17 @@ const CATEGORIES = [
   "Ndengu",
   "Potatoes",
   "Eggs",
+  "Pasta",
+  "Snack",
+  "Beef",
+  "Meat",
+  "Seafood",
+  "Omena",
+  "Main Dish",
+  "Side Dish",
+  "Salad",
+  "Beverage",
+  "Dessert",
 ];
 
 const BUDGETS: { label: string; value: number | null }[] = [

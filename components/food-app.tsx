@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { type Recipe } from "@/lib/recipes";
@@ -14,6 +15,7 @@ import { Topbar } from "@/components/topbar";
 import { imageOverrideStorageKey } from "@/lib/image-overrides";
 import { read } from "@/lib/storage";
 import { View, MealType } from "@/lib/types";
+import { apiClient } from "@/lib/api-client";
 
 import { Dashboard } from "@/components/views/dashboard";
 import { Explore } from "@/components/views/explore";
@@ -45,11 +47,11 @@ interface RecipesResponse {
   nextPage: number | null;
 }
 
-const fetcher = (url: string) =>
-  fetch(url).then((response) => {
-    if (!response.ok) throw new Error("Unable to load recipes");
-    return response.json();
-  });
+const fetcher = async (url: string) => {
+  const res = await apiClient<RecipesResponse>(url);
+  if (!res.ok) throw new Error(res.error);
+  return res.data;
+};
 
 export function FoodApp({
   initialView = "home",
@@ -73,11 +75,18 @@ export function FoodApp({
   const {
     data: catalogResponse,
     isLoading: isCatalogLoading,
+    error: catalogError
   } = useSWR<RecipesResponse>(
     `/api/recipes?page=${page}&limit=50${showAll ? "&includeAll=true" : ""}`,
     fetcher,
-    { revalidateOnFocus: false }
+    { revalidateOnFocus: false, shouldRetryOnError: false }
   );
+
+  useEffect(() => {
+    if (catalogError) {
+      toast.error("Failed to load recipes. Please check your connection.");
+    }
+  }, [catalogError]);
 
   useEffect(() => {
     if (!catalogResponse?.recipes) return;
@@ -183,7 +192,6 @@ export function FoodApp({
       const supabase = createSupabaseClient();
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
-        // ✅ Redirects to landing page root if not logged in
         router.replace("/login"); 
         return;
       }
@@ -194,28 +202,35 @@ export function FoodApp({
       setUserEmail(data.user.email || "");
       setUserName(data.user.user_metadata?.display_name || "User");
 
-      const response = await fetch("/api/preferences");
-      const payload = response.ok ? await response.json() : {};
-      const prefs = payload.preferences;
+      const [prefsRes, shoppingRes] = await Promise.all([
+        apiClient("/api/preferences"),
+        apiClient("/api/shopping"),
+      ]);
 
-      setFavorites(prefs?.favorites ?? read(store.favorites, []));
-      setHistory(prefs?.history ?? read(store.history, []));
-      setPantry(prefs?.pantry ?? read(store.pantry, []));
+      const prefs = prefsRes.ok ? prefsRes.data.preferences : null;
+      const shoppingData = shoppingRes.ok ? shoppingRes.data : null;
 
-      const shoppingResponse = await fetch("/api/shopping");
-      const shoppingPayload = shoppingResponse.ok ? await shoppingResponse.json() : null;
+      if (prefs) {
+        setFavorites(prefs.favorites ?? read(store.favorites, []));
+        setHistory(prefs.history ?? read(store.history, []));
+        setPantry(prefs.pantry ?? read(store.pantry, []));
+        setReminders(prefs.reminders ?? read(store.reminders, { morning: true, lunch: true, evening: true }));
+        setImageOverrides(prefs.image_overrides ?? read(imageOverrideStorageKey, {}));
+        if (prefs.user_budget) setUserBudget(prefs.user_budget);
+      } else {
+        // Fallback to local storage if API fails
+        setFavorites(read(store.favorites, []));
+        setHistory(read(store.history, []));
+        setPantry(read(store.pantry, []));
+        setReminders(read(store.reminders, { morning: true, lunch: true, evening: true }));
+        setImageOverrides(read(imageOverrideStorageKey, {}));
+      }
+
       setShopping(
-        shoppingPayload?.items?.map((item: { ingredient_name: string }) => item.ingredient_name) ??
+        shoppingData?.items?.map((item: { ingredient_name: string }) => item.ingredient_name) ??
           prefs?.shopping ??
           read(store.shopping, [])
       );
-
-      setReminders(
-        prefs?.reminders ?? read(store.reminders, { morning: true, lunch: true, evening: true })
-      );
-      setImageOverrides(prefs?.image_overrides ?? read(imageOverrideStorageKey, {}));
-      
-      if (prefs?.user_budget) setUserBudget(prefs.user_budget);
 
       setMounted(true);
     })();
@@ -231,9 +246,10 @@ export function FoodApp({
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
     localStorage.setItem("food-theme", JSON.stringify(dark ? "dark" : "light"));
 
-    void fetch("/api/preferences", {
+    // Background sync. We don't show a toast on success to avoid spamming the user.
+    // We only show an error if the sync fails silently in the background.
+    void apiClient("/api/preferences", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         favorites,
         history,
@@ -243,6 +259,11 @@ export function FoodApp({
         image_overrides: imageOverrides,
         user_budget: userBudget,
       }),
+    }).then(res => {
+      if (!res.ok && res.status !== 401) {
+        // Ignore 401s here (apiClient handles redirect)
+        toast.error("Failed to sync preferences to the cloud. Your changes are saved locally.");
+      }
     });
   }, [
     favorites, history, pantry, shopping, dark, reminders, imageOverrides, userBudget, mounted, userId,
@@ -252,21 +273,23 @@ export function FoodApp({
   useEffect(() => {
     if (view !== "shopping" || !userId) return;
     (async () => {
-      try {
-        const listsRes = await fetch("/api/shopping-lists");
-        const listsData = await listsRes.json();
-        const lists: any[] = listsData.lists ?? [];
-        const todayStr = new Date().toISOString().split("T")[0];
-        const isActive = (l: any) =>
-          l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
-        const listId = lists.find(isActive)?.id ?? lists[0]?.id;
-        if (!listId) { setShopping([]); return; }
-        const itemsRes = await fetch(`/api/shopping?list_id=${listId}`);
-        const itemsData = await itemsRes.json();
+      const listsRes = await apiClient("/api/shopping-lists");
+      if (!listsRes.ok) return; // Silent fail, shopping page will show its own error
+
+      const lists: any[] = listsRes.data.lists ?? [];
+      const todayStr = new Date().toISOString().split("T")[0];
+      const isActive = (l: any) =>
+        l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
+      const listId = lists.find(isActive)?.id ?? lists[0]?.id;
+      
+      if (!listId) { setShopping([]); return; }
+      
+      const itemsRes = await apiClient(`/api/shopping?list_id=${listId}`);
+      if (itemsRes.ok) {
         setShopping(
-          (itemsData.items ?? []).filter((i: any) => !i.checked).map((i: any) => i.ingredient_name)
+          (itemsRes.data.items ?? []).filter((i: any) => !i.checked).map((i: any) => i.ingredient_name)
         );
-      } catch (err) { console.error(err); }
+      }
     })();
   }, [view, userId]);
 
@@ -275,66 +298,71 @@ export function FoodApp({
     if (!mounted || !userId) return;
     let cancelled = false;
     const checkReminders = async () => {
-      try {
-        const res = await fetch("/api/reminders");
-        if (!res.ok) return;
-        const data = await res.json();
-        const settings = data.settings ?? [];
-        const history = data.history ?? [];
-        if (cancelled) return;
+      const res = await apiClient("/api/reminders");
+      if (!res.ok) return; // Silent fail for background checker
+      
+      const settings = res.data.settings ?? [];
+      const history = res.data.history ?? [];
+      if (cancelled) return;
 
-        const now = new Date();
-        const today = now.getDay() === 0 ? 7 : now.getDay();
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
-        const todayStr = now.toISOString().split("T")[0];
+      const now = new Date();
+      const today = now.getDay() === 0 ? 7 : now.getDay();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const todayStr = now.toISOString().split("T")[0];
 
-        for (const setting of settings) {
-          if (!setting.enabled) continue;
-          if (!setting.days_of_week?.includes(today)) continue;
+      for (const setting of settings) {
+        if (!setting.enabled) continue;
+        if (!setting.days_of_week?.includes(today)) continue;
 
-          const quietStart = setting.quiet_hours_start || "22:00";
-          const quietEnd = setting.quiet_hours_end || "06:00";
-          const [qsh, qsm] = quietStart.split(":").map(Number);
-          const [qeh, qem] = quietEnd.split(":").map(Number);
-          const quietStartMin = qsh * 60 + qsm;
-          const quietEndMin = qeh * 60 + qem;
-          const inQuietHours =
-            quietStartMin > quietEndMin
-              ? currentMinutes >= quietStartMin || currentMinutes < quietEndMin
-              : currentMinutes >= quietStartMin && currentMinutes < quietEndMin;
-          if (inQuietHours) continue;
+        const quietStart = setting.quiet_hours_start || "22:00";
+        const quietEnd = setting.quiet_hours_end || "06:00";
+        const [qsh, qsm] = quietStart.split(":").map(Number);
+        const [qeh, qem] = quietEnd.split(":").map(Number);
+        const quietStartMin = qsh * 60 + qsm;
+        const quietEndMin = qeh * 60 + qem;
+        const inQuietHours =
+          quietStartMin > quietEndMin
+            ? currentMinutes >= quietStartMin || currentMinutes < quietEndMin
+            : currentMinutes >= quietStartMin && currentMinutes < quietEndMin;
+        if (inQuietHours) continue;
 
-          const fireKey = `${setting.meal_type}-${todayStr}`;
-          if (firedReminders.current.has(fireKey)) continue;
-          const alreadyFiredDB = history.some(
-            (h: any) => h.meal_type === setting.meal_type && new Date(h.fired_at).toDateString() === now.toDateString()
-          );
-          if (alreadyFiredDB) { firedReminders.current.add(fireKey); continue; }
+        const fireKey = `${setting.meal_type}-${todayStr}`;
+        if (firedReminders.current.has(fireKey)) continue;
+        
+        const alreadyFiredDB = history.some(
+          (h: any) => h.meal_type === setting.meal_type && new Date(h.fired_at).toDateString() === now.toDateString()
+        );
+        if (alreadyFiredDB) { firedReminders.current.add(fireKey); continue; }
 
-          const [rh, rm] = (setting.reminder_time || "08:00").split(":").map(Number);
-          const reminderMinutes = rh * 60 + rm;
-          const isTimeForReminder = currentMinutes >= reminderMinutes && currentMinutes < reminderMinutes + 2;
-          if (!isTimeForReminder) continue;
+        const [rh, rm] = (setting.reminder_time || "08:00").split(":").map(Number);
+        const reminderMinutes = rh * 60 + rm;
+        const isTimeForReminder = currentMinutes >= reminderMinutes && currentMinutes < reminderMinutes + 2;
+        if (!isTimeForReminder) continue;
 
-          const title = setting.meal_type === "morning" ? "Good morning!" : setting.meal_type === "lunch" ? "Lunch time" : "Dinner time";
-          const message = setting.meal_type === "morning" ? "What's for breakfast today?" : setting.meal_type === "lunch" ? "What's for lunch today?" : "Plan your dinner tonight";
-          setNotice(`🔔 ${title} — ${message}`);
+        const title = setting.meal_type === "morning" ? "Good morning!" : setting.meal_type === "lunch" ? "Lunch time" : "Dinner time";
+        const message = setting.meal_type === "morning" ? "What's for breakfast today?" : setting.meal_type === "lunch" ? "What's for lunch today?" : "Plan your dinner tonight";
+        setNotice(`🔔 ${title} — ${message}`);
 
-          if (typeof window !== "undefined") {
-            const soundEnabled = localStorage.getItem("reminder-sound") !== "off";
-            if (soundEnabled) {
-              try {
-                const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT");
-                audio.volume = 0.3; audio.play().catch(() => {});
-              } catch {}
-            }
+        if (typeof window !== "undefined") {
+          const soundEnabled = localStorage.getItem("reminder-sound") !== "off";
+          if (soundEnabled) {
+            try {
+              const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT");
+              audio.volume = 0.3; audio.play().catch(() => {});
+            } catch {}
           }
-          firedReminders.current.add(fireKey);
-          try { await fetch("/api/reminder-history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meal_type: setting.meal_type, title, message }) }); } catch {}
-          setTimeout(() => setNotice(null), 8000);
         }
-      } catch (err) { console.error(err); }
+        firedReminders.current.add(fireKey);
+        
+        void apiClient("/api/reminder-history", { 
+          method: "POST", 
+          body: JSON.stringify({ meal_type: setting.meal_type, title, message }) 
+        });
+        
+        setTimeout(() => setNotice(null), 8000);
+      }
     };
+    
     checkReminders();
     const interval = setInterval(checkReminders, 60000);
     return () => { cancelled = true; clearInterval(interval); };
@@ -347,11 +375,15 @@ export function FoodApp({
         if (initialRecipe) return;
         let found = catalog.find((r) => r.id === selectedId);
         if (found) { setSelected(found); setView("detail"); return; }
-        try {
-          const response = await fetch(`/api/recipes/${selectedId}`);
-          if (response.ok) { const recipe = await response.json(); setSelected(recipe); setView("detail"); }
-          else { setView("browse"); router.push("/explore"); }
-        } catch (error) { setView("browse"); router.push("/explore"); }
+        
+        const res = await apiClient(`/api/recipes/${selectedId}`);
+        if (res.ok) {
+          setSelected(res.data);
+          setView("detail");
+        } else {
+          setView("browse");
+          router.push("/explore");
+        }
       }
     }
     if (selectedId && (catalog.length > 0 || initialView === "detail")) loadRecipe();
@@ -388,7 +420,7 @@ export function FoodApp({
     setView(target);
     setMobileOpen(false);
     const paths: Partial<Record<View, string>> = { 
-      home: "/dashboard", // ✅ Updated to /dashboard
+      home: "/dashboard",
       browse: "/explore", 
       pantry: "/pantry", 
       planner: "/planner", 

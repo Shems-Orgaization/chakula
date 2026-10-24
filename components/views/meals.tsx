@@ -3,15 +3,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Heart, ChefHat, PenSquare, Library, Search, Star, Flame,
+  Heart, ChefHat, PenSquare, Library, Search, Star,
   Clock3, Plus, Loader2, TrendingUp, Edit3, Trash2, X, Check
 } from "lucide-react";
+import { toast } from "sonner";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
-import { MiniCard } from "@/components/mini-card";
-import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
+import { RecipeImage } from "@/components/recipe-image";
 import { Collections } from "./collections";
 import { UserRecipeForm } from "@/components/user-recipe-form";
+import { apiClient } from "@/lib/api-client";
 
 interface MealsProps {
   catalog: Recipe[];
@@ -88,18 +89,13 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
   const [favorites, setFavorites] = useState<string[]>([]);
   const [collectionsCount, setCollectionsCount] = useState(0);
 
-  // ✅ FORM STATE
   const [showRecipeForm, setShowRecipeForm] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState<UserRecipe | null>(null);
-
-  // ✅ LOG COOK MODAL
   const [showLogCookModal, setShowLogCookModal] = useState(false);
   const [logSearch, setLogSearch] = useState("");
-
-  // ✅ DELETE STATE
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [loggingId, setLoggingId] = useState<string | null>(null);
 
-  // Build catalog map
   const catalogMap = useMemo(() => {
     const map = new Map<string, Recipe>();
     for (const r of catalog) {
@@ -109,26 +105,23 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
     return map;
   }, [catalog]);
 
-  // Load all data
   const loadData = async () => {
     setLoading(true);
-    try {
-      const [mealsRes, collectionsRes] = await Promise.all([
-        fetch("/api/meals"),
-        fetch("/api/collections"),
-      ]);
-      const data = await mealsRes.json();
-      const collectionsData = await collectionsRes.json();
-      setCookingLog(data.cookingLog ?? []);
-      setCookStats(data.cookStats ?? {});
-      setUserRecipes(data.userRecipes ?? []);
-      setFavorites(data.favorites ?? []);
-      setCollectionsCount((collectionsData.collections ?? []).length);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+    const [mealsRes, collectionsRes] = await Promise.all([
+      apiClient("/api/meals"),
+      apiClient("/api/collections"),
+    ]);
+
+    if (mealsRes.ok && collectionsRes.ok) {
+      setCookingLog(mealsRes.data.cookingLog ?? []);
+      setCookStats(mealsRes.data.cookStats ?? {});
+      setUserRecipes(mealsRes.data.userRecipes ?? []);
+      setFavorites(mealsRes.data.favorites ?? []);
+      setCollectionsCount((collectionsRes.data.collections ?? []).length);
+    } else {
+      toast.error(mealsRes.error || collectionsRes.error || "Failed to load data");
     }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -139,7 +132,6 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
     if (catalog.length > 0) setLoading(false);
   }, [catalog.length]);
 
-  // ---- STATS ----
   const stats = useMemo(() => {
     const totalCooks = cookingLog.length;
     const now = new Date();
@@ -148,25 +140,15 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     }).length;
 
-    const cookDays = new Set(cookingLog.map((l) => l.cooked_at.split("T")[0]));
-    let streak = 0;
-    const checkDate = new Date();
-    while (cookDays.has(checkDate.toISOString().split("T")[0])) {
-      streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    }
-
     return {
       favoritesCount: favorites.length,
       cookedCount: totalCooks,
       myRecipesCount: userRecipes.length,
       collectionsCount,
       thisMonth,
-      streak,
     };
   }, [favorites, cookingLog, userRecipes, collectionsCount]);
 
-  // ---- FAVORITES ----
   const favoriteRecipes = useMemo(() => {
     const map = new Map<string, Recipe>();
     for (const r of loved) map.set(r.id, r);
@@ -177,7 +159,6 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
     return Array.from(map.values());
   }, [loved, favorites, catalogMap]);
 
-  // ---- COOKED ----
   const cookedRecipes = useMemo(() => {
     const unique = new Map<string, { recipe: Recipe; count: number; lastCooked: string; avgRating: number | null }>();
     for (const entry of cookingLog) {
@@ -194,7 +175,6 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
     return Array.from(unique.values());
   }, [cookingLog, cookStats, catalogMap]);
 
-  // ---- FILTERS ----
   const filteredFavorites = useMemo(() => {
     let list = [...favoriteRecipes];
     if (search) {
@@ -232,44 +212,48 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
     return list;
   }, [userRecipes, search, sortBy]);
 
-  // ✅ Quick recipes for logging cook
   const loggableRecipes = useMemo(() => {
     if (!logSearch) return catalog.slice(0, 20);
     const q = logSearch.toLowerCase();
     return catalog.filter((r) => r.name.toLowerCase().includes(q)).slice(0, 20);
   }, [catalog, logSearch]);
 
-  // ✅ LOG A COOK
   const logCook = async (recipe: Recipe) => {
-    try {
-      await fetch("/api/meals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipe_id: recipe.id,
-          recipe_name: recipe.name,
-        }),
-      });
+    if (loggingId) return;
+    setLoggingId(recipe.id);
+
+    const res = await apiClient("/api/meals", {
+      method: "POST",
+      body: JSON.stringify({
+        recipe_id: recipe.id,
+        recipe_name: recipe.name,
+      }),
+    });
+
+    if (res.ok) {
+      toast.success("Cook logged successfully");
       setShowLogCookModal(false);
       setLogSearch("");
       await loadData();
-    } catch (err) {
-      console.error(err);
+    } else {
+      toast.error(res.error);
     }
+    setLoggingId(null);
   };
 
-  // ✅ DELETE USER RECIPE
   const deleteUserRecipe = async (id: string) => {
     if (!confirm("Delete this recipe? This cannot be undone.")) return;
     setDeletingId(id);
-    try {
-      await fetch(`/api/user-recipes?id=${id}`, { method: "DELETE" });
+    
+    const res = await apiClient(`/api/user-recipes?id=${id}`, { method: "DELETE" });
+    
+    if (res.ok) {
       setUserRecipes((prev) => prev.filter((r) => r.id !== id));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setDeletingId(null);
+      toast.success("Recipe deleted");
+    } else {
+      toast.error(res.error);
     }
+    setDeletingId(null);
   };
 
   if (loading && catalog.length === 0) {
@@ -292,7 +276,6 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
           </p>
         </div>
 
-        {/* ✅ CONTEXT-AWARE ACTION BUTTON */}
         <div className="flex gap-2">
           {activeTab === "mine" && (
             <button
@@ -429,32 +412,73 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
         </div>
       )}
 
-      {/* ============ FAVORITES ============ */}
+      {/* ============ FAVORITES (UNIFORM GRID) ============ */}
       {activeTab === "favorites" && (
         filteredFavorites.length ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {filteredFavorites.map((r) => {
               const stat = cookStats[r.id];
               return (
-                <div key={r.id} className="group relative">
-                  <MiniCard recipe={r} open={() => open(r)} images={images} />
-                  {(stat?.count || stat?.avgRating) && (
-                    <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                      {stat.avgRating && (
-                        <span className="flex items-center gap-1">
-                          <Star className="size-3 fill-yellow-500 text-yellow-500" />
+                <article
+                  key={r.id}
+                  className="group relative overflow-hidden rounded-2xl border border-border bg-card transition-all duration-300 hover:-translate-y-1 hover:shadow-xl flex flex-col"
+                >
+                  <div className="relative aspect-[1.4] w-full overflow-hidden">
+                    <button onClick={() => open(r)} className="block size-full">
+                      <RecipeImage
+                        recipe={r}
+                        images={images}
+                        className="size-full object-cover transition duration-500 group-hover:scale-105"
+                        placeholderClassName="!aspect-auto h-full"
+                      />
+                    </button>
+                    
+                    <div className="absolute right-3 top-3 rounded-full bg-background/90 p-2 backdrop-blur shadow-sm">
+                      <Heart className="size-4 fill-red-500 text-red-500" />
+                    </div>
+
+                    <div className="absolute left-3 top-3">
+                      <span className="rounded-full bg-background/90 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-foreground backdrop-blur shadow-sm">
+                        {r.category}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button onClick={() => open(r)} className="block w-full p-5 text-left flex-1">
+                    <p className="eyebrow text-accent">{r.mealType}</p>
+                    <h2 className="mt-1 font-serif text-xl leading-tight transition-colors group-hover:text-accent">
+                      {r.name}
+                    </h2>
+                    <p className="mt-2 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                      {r.description}
+                    </p>
+                  </button>
+
+                  <div className="flex items-center justify-between border-t border-border bg-secondary/30 px-5 py-3">
+                    <div className="flex items-center gap-3 text-xs font-semibold text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Clock3 className="size-3.5" />
+                        {r.totalTime} min
+                      </span>
+                      <span>{formatCost(r.estimatedCost)}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {stat?.avgRating && (
+                        <span className="flex items-center gap-1 rounded-md bg-yellow-500/10 px-1.5 py-1 text-xs font-bold text-yellow-600 dark:text-yellow-500">
+                          <Star className="size-3 fill-current" />
                           {stat.avgRating}
                         </span>
                       )}
-                      {stat.count > 1 && (
-                        <span className="flex items-center gap-1">
+                      {stat?.count && stat.count > 1 && (
+                        <span className="flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-1 text-xs font-bold text-accent">
                           <ChefHat className="size-3" />
-                          Made {stat.count}×
+                          {stat.count}×
                         </span>
                       )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                </article>
               );
             })}
           </div>
@@ -479,7 +503,6 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                   className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-3 text-left transition hover:border-accent/50 hover:shadow-md"
                 >
                   <div className="size-20 shrink-0 overflow-hidden rounded-xl">
-                    {/* ✅ REPLACED BLOCK WITH RecipeImage */}
                     <RecipeImage
                       recipe={recipe}
                       images={images}
@@ -546,7 +569,6 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                   ) : (
                     <PenSquare className="size-12 text-accent/40" />
                   )}
-                  {/* Hover actions */}
                   <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
                     <button
                       onClick={(e) => {
@@ -669,10 +691,10 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                       <button
                         key={r.id}
                         onClick={() => logCook(r)}
-                        className="flex items-center gap-3 rounded-xl border border-border bg-background p-2.5 text-left transition hover:border-accent hover:bg-accent/5"
+                        disabled={loggingId === r.id}
+                        className="flex items-center gap-3 rounded-xl border border-border bg-background p-2.5 text-left transition hover:border-accent hover:bg-accent/5 disabled:opacity-50"
                       >
                         <div className="size-12 shrink-0 overflow-hidden rounded-lg">
-                          {/* ✅ REPLACED BLOCK WITH RecipeImage */}
                           <RecipeImage
                             recipe={r}
                             images={images}
@@ -686,7 +708,11 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                             {r.totalTime} min · {formatCost(r.estimatedCost)}
                           </p>
                         </div>
-                        <Check className="size-4 shrink-0 text-accent" />
+                        {loggingId === r.id ? (
+                          <Loader2 className="size-4 shrink-0 animate-spin text-accent" />
+                        ) : (
+                          <Check className="size-4 shrink-0 text-accent" />
+                        )}
                       </button>
                     );
                   })}
@@ -700,18 +726,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
   );
 }
 
-// ============ EMPTY STATE ============
-function EmptyState({
-  icon: Icon,
-  title,
-  text,
-  action,
-}: {
-  icon: any;
-  title: string;
-  text: string;
-  action?: React.ReactNode;
-}) {
+function EmptyState({ icon: Icon, title, text, action }: { icon: any; title: string; text: string; action?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-16 text-center">
       <Icon className="size-12 text-muted-foreground/40" />

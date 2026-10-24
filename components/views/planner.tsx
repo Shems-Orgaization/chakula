@@ -6,9 +6,12 @@ import {
   ChevronLeft, ChevronRight, Plus, X, Calendar, ShoppingBag,
   Coffee, Sun, Moon, Trash2, Loader2, Search, Sparkles
 } from "lucide-react";
+import { toast } from "sonner";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
-import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
+import { RecipeImage } from "@/components/recipe-image";
+import { apiClient } from "@/lib/api-client";
+import { MESSAGES } from "@/lib/messages";
 
 interface Plan {
   id: string;
@@ -70,7 +73,6 @@ export function Planner({
   const [saving, setSaving] = useState(false);
   const [pickerOpen, setPickerOpen] = useState<{ date: string; slot: string } | null>(null);
   const [pickerSearch, setPickerSearch] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -84,15 +86,13 @@ export function Planner({
   // ----- LOAD PLANS -----
   const loadPlans = async () => {
     setLoading(true);
-    try {
-      const res = await fetch(`/api/plans?start=${startDateStr}&end=${endDateStr}`);
-      const data = await res.json();
-      setPlans(data.plans ?? []);
-    } catch (err) {
-      console.error("Failed to load plans:", err);
-    } finally {
-      setLoading(false);
+    const res = await apiClient(`/api/plans?start=${startDateStr}&end=${endDateStr}`);
+    if (res.ok) {
+      setPlans(res.data.plans ?? []);
+    } else {
+      toast.error(res.error);
     }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -106,54 +106,49 @@ export function Planner({
 
   // ----- ADD MEAL -----
   const addMeal = async (recipeId: string) => {
-    if (!pickerOpen) return;
+    if (!pickerOpen || saving) return;
     setSaving(true);
 
-    try {
-      const res = await fetch("/api/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan_date: pickerOpen.date,
-          meal_type: pickerOpen.slot,
-          recipe_id: recipeId,
-          servings: 2,
-        }),
-      });
+    const res = await apiClient("/api/plans", {
+      method: "POST",
+      body: JSON.stringify({
+        plan_date: pickerOpen.date,
+        meal_type: pickerOpen.slot,
+        recipe_id: recipeId,
+        servings: 2,
+      }),
+    });
 
-      if (!res.ok) throw new Error("Failed to add meal");
-
+    if (res.ok) {
       await loadPlans();
       setPickerOpen(null);
       setPickerSearch("");
-      setNotice("✅ Meal added to plan");
-      setTimeout(() => setNotice(null), 3000);
-    } catch (err) {
-      console.error(err);
-      setNotice("❌ Failed to add meal");
-      setTimeout(() => setNotice(null), 3000);
-    } finally {
-      setSaving(false);
+      toast.success("Meal added to plan");
+    } else {
+      toast.error(res.error);
     }
+    setSaving(false);
   };
 
-  // ----- REMOVE MEAL -----
+  // ----- REMOVE MEAL (Optimistic) -----
   const removeMeal = async (planId: string) => {
-    try {
-      const res = await fetch(`/api/plans?id=${planId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to remove");
+    const previousPlans = [...plans];
+    
+    // Optimistic update
+    setPlans((prev) => prev.filter((p) => p.id !== planId));
 
-      setPlans((prev) => prev.filter((p) => p.id !== planId));
-      setNotice("🗑️ Meal removed");
-      setTimeout(() => setNotice(null), 2000);
-    } catch (err) {
-      console.error(err);
-      setNotice("❌ Failed to remove");
-      setTimeout(() => setNotice(null), 2000);
+    const res = await apiClient(`/api/plans?id=${planId}`, { method: "DELETE" });
+
+    if (!res.ok) {
+      // Rollback
+      setPlans(previousPlans);
+      toast.error(res.error);
+    } else {
+      toast.success("Meal removed from plan");
     }
   };
 
-  // ----- GENERATE SHOPPING LIST (adds to active list) -----
+  // ----- GENERATE SHOPPING LIST -----
   const generateShoppingList = async () => {
     const allIngredients = new Set<string>();
 
@@ -165,30 +160,26 @@ export function Planner({
     });
 
     if (allIngredients.size === 0) {
-      setNotice("⚠️ No meals planned this week");
-      setTimeout(() => setNotice(null), 3000);
+      toast.error("No meals planned this week");
       return;
     }
 
+    setSaving(true);
     try {
-      // 1. Find or create an active shopping list
-      const listsRes = await fetch("/api/shopping-lists");
-      const listsData = await listsRes.json();
-      const lists: any[] = listsData.lists ?? [];
-
+      // 1. Find active list
+      const listsRes = await apiClient("/api/shopping-lists");
+      if (!listsRes.ok) throw new Error(listsRes.error);
+      
+      const lists = listsRes.data.lists ?? [];
       const todayStr = new Date().toISOString().split("T")[0];
-      const isActive = (l: any) =>
-        l.end_date
-          ? l.start_date <= todayStr && todayStr <= l.end_date
-          : l.start_date === todayStr;
-
+      const isActive = (l: any) => l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
+      
       let listId = lists.find(isActive)?.id ?? lists[0]?.id;
 
+      // 2. Create if missing
       if (!listId) {
-        // Create a default weekly list
-        const createRes = await fetch("/api/shopping-lists", {
+        const createRes = await apiClient("/api/shopping-lists", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: "Weekly Groceries",
             period_type: "week",
@@ -196,35 +187,29 @@ export function Planner({
             budget: 0,
           }),
         });
-        const createData = await createRes.json();
-        listId = createData.list?.id;
+        if (!createRes.ok) throw new Error(createRes.error);
+        listId = createRes.data.list?.id;
       }
 
       if (!listId) throw new Error("Could not resolve a shopping list");
 
-      // 2. Add the ingredients to that list
-      const res = await fetch("/api/shopping", {
+      // 3. Add items
+      const addRes = await apiClient("/api/shopping", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: Array.from(allIngredients),
           list_id: listId,
           source: "recipe",
         }),
       });
+      if (!addRes.ok) throw new Error(addRes.error);
 
-      if (!res.ok) throw new Error("Failed to add");
-
-      // 3. Update the parent shopping state so the badge updates
-      const merged = [...new Set([...shopping, ...allIngredients])];
-      setShopping(merged);
-
-      setNotice(`🛒 Added ${allIngredients.size} items to your list`);
-      setTimeout(() => setNotice(null), 3000);
-    } catch (err) {
-      console.error(err);
-      setNotice("❌ Failed to add items");
-      setTimeout(() => setNotice(null), 3000);
+      setShopping([...new Set([...shopping, ...allIngredients])]);
+      toast.success(`Added ${allIngredients.size} items to your shopping list`);
+    } catch (err: any) {
+      toast.error(err.message || MESSAGES.network.generic);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -232,16 +217,18 @@ export function Planner({
   const clearWeek = async () => {
     if (!confirm("Clear all meals for this week?")) return;
 
-    try {
-      await fetch(
-        `/api/plans?date=${startDateStr}&end=${endDateStr}&clear=true`,
-        { method: "DELETE" }
-      );
-      setPlans([]);
-      setNotice("✅ Week cleared");
-      setTimeout(() => setNotice(null), 2000);
-    } catch (err) {
-      console.error(err);
+    const previousPlans = [...plans];
+    setPlans([]); // Optimistic
+
+    const res = await apiClient(`/api/plans?date=${startDateStr}&end=${endDateStr}&clear=true`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      setPlans(previousPlans); // Rollback
+      toast.error(res.error);
+    } else {
+      toast.success("Week cleared");
     }
   };
 
@@ -400,7 +387,6 @@ export function Planner({
                               onClick={() => open(recipe)}
                               className="flex w-full items-start gap-3 text-left"
                             >
-                              {/* ✅ REPLACED WITH RecipeImage */}
                               <div className="size-14 shrink-0 overflow-hidden rounded-lg">
                                 <RecipeImage
                                   recipe={recipe}
@@ -455,9 +441,10 @@ export function Planner({
           </div>
           <button
             onClick={generateShoppingList}
-            className="flex items-center gap-2 rounded-xl bg-accent px-6 py-3 font-semibold text-accent-foreground transition hover:opacity-90"
+            disabled={saving}
+            className="flex items-center gap-2 rounded-xl bg-accent px-6 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
           >
-            <ShoppingBag className="size-4" />
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <ShoppingBag className="size-4" />}
             Generate Shopping List
           </button>
         </div>
@@ -521,7 +508,6 @@ export function Planner({
                       disabled={saving}
                       className="flex items-center gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-accent hover:bg-accent/5 disabled:opacity-50"
                     >
-                      {/* ✅ REPLACED WITH RecipeImage */}
                       <div className="size-14 shrink-0 overflow-hidden rounded-lg">
                         <RecipeImage
                           recipe={r}
@@ -543,13 +529,6 @@ export function Planner({
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* NOTICE TOAST */}
-      {notice && (
-        <div className="fixed bottom-5 right-5 z-[90] flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-xl">
-          <p className="text-sm font-medium">{notice}</p>
         </div>
       )}
     </div>

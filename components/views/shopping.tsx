@@ -1,3 +1,4 @@
+// components/views/shopping.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,6 +8,9 @@ import {
   Edit3, Eye, EyeOff, Calendar, ChevronDown, MoreVertical,
   Archive, Copy, Check, Star
 } from "lucide-react";
+import { toast } from "sonner";
+import { apiClient } from "@/lib/api-client";
+import { MESSAGES } from "@/lib/messages";
 
 interface ShoppingList {
   id: string;
@@ -50,46 +54,23 @@ const CATEGORIES = [
 const CATEGORY_ORDER = ["produce", "meat", "dairy", "pantry", "spices", "other"];
 
 const PERIOD_ICONS: Record<string, string> = {
-  today: "⚡",
-  week: "📅",
-  month: "🗓️",
-  custom: "📌",
-  event: "🎉",
+  today: "⚡", week: "📅", month: "🗓️", custom: "📌", event: "🎉",
 };
 
-// Date helpers
 const formatDate = (d: Date) => d.toISOString().split("T")[0];
 const formatDisplay = (dateStr: string) =>
   new Date(dateStr + "T00:00:00").toLocaleDateString("en-KE", { month: "short", day: "numeric" });
 
-const getWeekRange = (from: Date) => {
-  const start = new Date(from);
-  const end = new Date(from);
-  end.setDate(end.getDate() + 6);
-  return [start, end];
-};
-
-const getMonthRange = (from: Date) => {
-  const start = new Date(from.getFullYear(), from.getMonth(), 1);
-  const end = new Date(from.getFullYear(), from.getMonth() + 1, 0);
-  return [start, end];
-};
-
 const getPeriodLabel = (list: ShoppingList): string => {
   if (list.period_type === "today") return "Today";
   if (list.period_type === "event") return "Event";
-  
-  if (list.end_date) {
-    return `${formatDisplay(list.start_date)} → ${formatDisplay(list.end_date)}`;
-  }
+  if (list.end_date) return `${formatDisplay(list.start_date)} → ${formatDisplay(list.end_date)}`;
   return formatDisplay(list.start_date);
 };
 
 const isActive = (list: ShoppingList): boolean => {
   const today = formatDate(new Date());
-  if (list.end_date) {
-    return list.start_date <= today && today <= list.end_date;
-  }
+  if (list.end_date) return list.start_date <= today && today <= list.end_date;
   return list.start_date === today;
 };
 
@@ -103,7 +84,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [filter, setFilter] = useState<"all" | "pending" | "done">("all");
-  const [notice, setNotice] = useState<string | null>(null);
   const [showListPicker, setShowListPicker] = useState(false);
   const [showCreateList, setShowCreateList] = useState(false);
   const [showListMenu, setShowListMenu] = useState(false);
@@ -132,34 +112,30 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
 
   // ============ LOAD LISTS ============
   const loadLists = async () => {
-    try {
-      const res = await fetch("/api/shopping-lists");
-      const data = await res.json();
-      const fetchedLists: ShoppingList[] = data.lists ?? [];
+    const res = await apiClient("/api/shopping-lists");
+    if (res.ok) {
+      const fetchedLists: ShoppingList[] = res.data.lists ?? [];
       setLists(fetchedLists);
-
-      // Auto-select: active list today, else most recent
       if (fetchedLists.length > 0 && !activeListId) {
         const todayActive = fetchedLists.find((l) => isActive(l));
         setActiveListId(todayActive?.id ?? fetchedLists[0].id);
       } else if (fetchedLists.length === 0) {
         setActiveListId(null);
       }
-    } catch (err) {
-      console.error(err);
+    } else {
+      toast.error(res.error);
     }
   };
 
   // ============ LOAD ITEMS ============
   const loadItems = async (listId: string) => {
-    try {
-      const res = await fetch(`/api/shopping?list_id=${listId}`);
-      const data = await res.json();
-      setItems(data.items ?? []);
-      const names = (data.items ?? []).filter((i: ShoppingItem) => !i.checked).map((i: ShoppingItem) => i.ingredient_name);
+    const res = await apiClient(`/api/shopping?list_id=${listId}`);
+    if (res.ok) {
+      setItems(res.data.items ?? []);
+      const names = (res.data.items ?? []).filter((i: ShoppingItem) => !i.checked).map((i: ShoppingItem) => i.ingredient_name);
       setLegacyItems(names);
-    } catch (err) {
-      console.error(err);
+    } else {
+      toast.error(res.error);
     }
   };
 
@@ -177,14 +153,10 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     else setItems([]);
   }, [activeListId]);
 
-  const showNotice = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(null), 2500);
-  };
-
   // ============ CREATE LIST ============
   const createList = async () => {
-    if (!newListName.trim()) return;
+    if (!newListName.trim() || busy) return;
+    setBusy(true);
 
     let end = newListEnd || null;
     if (!end) {
@@ -198,9 +170,8 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
       }
     }
 
-    const res = await fetch("/api/shopping-lists", {
+    const res = await apiClient("/api/shopping-lists", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: newListName.trim(),
         period_type: newListPeriod,
@@ -211,44 +182,60 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     });
 
     if (res.ok) {
-      const data = await res.json();
-      setLists((prev) => [data.list, ...prev]);
-      setActiveListId(data.list.id);
+      setLists((prev) => [res.data.list, ...prev]);
+      setActiveListId(res.data.list.id);
       setShowCreateList(false);
       setNewListName("");
       setNewListPeriod("week");
       setNewListStart(formatDate(new Date()));
       setNewListEnd("");
       setNewListBudget("");
-      showNotice("✅ List created");
+      toast.success("Shopping list created");
+    } else {
+      toast.error(res.error);
     }
+    setBusy(false);
   };
 
-  // ============ UPDATE LIST ============
+  // ============ UPDATE LIST (Optimistic) ============
   const updateList = async (id: string, updates: Partial<ShoppingList>) => {
+    const previous = [...lists];
     setLists((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
-    await fetch("/api/shopping-lists", {
+    
+    const res = await apiClient("/api/shopping-lists", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...updates }),
     });
+
+    if (!res.ok) {
+      setLists(previous); // rollback
+      toast.error(res.error);
+    }
   };
 
   // ============ ARCHIVE / DELETE ============
   const archiveList = async (id: string) => {
     if (!confirm("Archive this list? You can still view it later.")) return;
-    await fetch(`/api/shopping-lists?id=${id}&archive=true`, { method: "DELETE" });
-    setLists((prev) => prev.filter((l) => l.id !== id));
-    if (activeListId === id) setActiveListId(null);
-    showNotice("📦 List archived");
+    const res = await apiClient(`/api/shopping-lists?id=${id}&archive=true`, { method: "DELETE" });
+    if (res.ok) {
+      setLists((prev) => prev.filter((l) => l.id !== id));
+      if (activeListId === id) setActiveListId(null);
+      toast.success("List archived");
+    } else {
+      toast.error(res.error);
+    }
   };
 
   const deleteList = async (id: string) => {
     if (!confirm("Delete this list and all its items? This cannot be undone.")) return;
-    await fetch(`/api/shopping-lists?id=${id}`, { method: "DELETE" });
-    setLists((prev) => prev.filter((l) => l.id !== id));
-    if (activeListId === id) setActiveListId(null);
-    showNotice("🗑️ List deleted");
+    const res = await apiClient(`/api/shopping-lists?id=${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setLists((prev) => prev.filter((l) => l.id !== id));
+      if (activeListId === id) setActiveListId(null);
+      toast.success("List deleted");
+    } else {
+      toast.error(res.error);
+    }
   };
 
   // ============ ADD ITEM ============
@@ -256,91 +243,140 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     const name = input.trim();
     if (!name || busy || !activeListId) return;
     setBusy(true);
-    try {
-      const res = await fetch("/api/shopping", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ingredient_name: name, list_id: activeListId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setItems((prev) => [data.item, ...prev]);
-        setInput("");
-      }
-    } finally { setBusy(false); }
+    
+    const res = await apiClient("/api/shopping", {
+      method: "POST",
+      body: JSON.stringify({ ingredient_name: name, list_id: activeListId }),
+    });
+
+    if (res.ok) {
+      setItems((prev) => [res.data.item, ...prev]);
+      setInput("");
+      toast.success("Item added");
+    } else {
+      toast.error(res.error);
+    }
+    setBusy(false);
   };
 
-  // ============ TOGGLE ============
+  // ============ TOGGLE (Optimistic) ============
   const toggleCheck = async (item: ShoppingItem) => {
     const newChecked = !item.checked;
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: newChecked } : i)));
-    await fetch("/api/shopping", {
+
+    const res = await apiClient("/api/shopping", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: item.id, checked: newChecked }),
     });
+
+    if (!res.ok) {
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: item.checked } : i))); // rollback
+      toast.error(res.error);
+    }
   };
 
-  // ============ DELETE ITEM ============
+  // ============ DELETE ITEM (Optimistic) ============
   const deleteItem = async (id: string) => {
+    const previous = [...items];
     setItems((prev) => prev.filter((i) => i.id !== id));
-    await fetch(`/api/shopping?id=${id}`, { method: "DELETE" });
+
+    const res = await apiClient(`/api/shopping?id=${id}`, { method: "DELETE" });
+
+    if (!res.ok) {
+      setItems(previous); // rollback
+      toast.error(res.error);
+    }
   };
 
-  // ============ SAVE NAME ============
+  // ============ SAVE NAME (Optimistic) ============
   const saveEdit = async (id: string) => {
     const name = editValue.trim();
     if (!name) { setEditingId(null); return; }
+    
+    const previous = [...items];
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ingredient_name: name } : i)));
     setEditingId(null);
-    await fetch("/api/shopping", {
+
+    const res = await apiClient("/api/shopping", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ingredient_name: name }),
     });
+
+    if (!res.ok) {
+      setItems(previous);
+      toast.error(res.error);
+    }
   };
 
-  // ============ SAVE PRICE ============
+  // ============ SAVE PRICE (Optimistic) ============
   const savePriceEdit = async (id: string) => {
     const trimmed = editPriceValue.trim();
     const price = trimmed === "" ? null : Number(trimmed);
     if (price !== null && (isNaN(price) || price < 0)) { setEditingPriceId(null); return; }
+
+    const previous = [...items];
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, actual_price: price } : i)));
     setEditingPriceId(null);
-    await fetch("/api/shopping", {
+
+    const res = await apiClient("/api/shopping", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, actual_price: price }),
     });
+
+    if (!res.ok) {
+      setItems(previous);
+      toast.error(res.error);
+    }
   };
 
-  // ============ SAVE QUANTITY ============
+  // ============ SAVE QUANTITY (Optimistic) ============
   const saveQtyEdit = async (id: string) => {
     const trimmed = editQtyValue.trim();
     const qty = trimmed === "" ? null : Number(trimmed);
     if (qty !== null && (isNaN(qty) || qty < 0)) { setEditingQtyId(null); return; }
+
+    const previous = [...items];
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, quantity: qty } : i)));
     setEditingQtyId(null);
-    await fetch("/api/shopping", {
+
+    const res = await apiClient("/api/shopping", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, quantity: qty }),
     });
+
+    if (!res.ok) {
+      setItems(previous);
+      toast.error(res.error);
+    }
   };
 
   // ============ CLEAR ============
   const clearChecked = async () => {
     if (!activeListId || !confirm("Remove all checked items?")) return;
+    const previous = [...items];
     setItems((prev) => prev.filter((i) => !i.checked));
-    await fetch(`/api/shopping?clear_checked=true&list_id=${activeListId}`, { method: "DELETE" });
-    showNotice("🗑️ Checked items cleared");
+    
+    const res = await apiClient(`/api/shopping?clear_checked=true&list_id=${activeListId}`, { method: "DELETE" });
+    if (res.ok) {
+      toast.success("Checked items cleared");
+    } else {
+      setItems(previous);
+      toast.error(res.error);
+    }
   };
 
   const clearAll = async () => {
     if (!activeListId || !confirm("Remove ALL items from this list?")) return;
+    const previous = [...items];
     setItems([]);
-    await fetch(`/api/shopping?clear_all=true&list_id=${activeListId}`, { method: "DELETE" });
-    showNotice("🗑️ All items cleared");
+    
+    const res = await apiClient(`/api/shopping?clear_all=true&list_id=${activeListId}`, { method: "DELETE" });
+    if (res.ok) {
+      toast.success("All items cleared");
+    } else {
+      setItems(previous);
+      toast.error(res.error);
+    }
   };
 
   // ============ BUDGET ============
@@ -349,7 +385,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     const val = Number(budgetInput);
     if (!isNaN(val) && val >= 0) {
       await updateList(activeList.id, { budget: val });
-      showNotice(val > 0 ? "💵 Budget set" : "Budget removed");
+      toast.success(val > 0 ? "Budget set" : "Budget removed");
     }
     setEditingBudget(false);
     setBudgetInput("");
@@ -364,8 +400,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
   const pricedItems = items.filter((i) => i.actual_price !== null);
   const unpricedCount = items.filter((i) => i.actual_price === null).length;
   const pendingCost = items.filter((i) => !i.checked && i.actual_price !== null)
-    .reduce((s, i) => s + (i.actual_price ?? 0) * (i.quantity ?? 1), 0);
-  const totalCost = items.filter((i) => i.actual_price !== null)
     .reduce((s, i) => s + (i.actual_price ?? 0) * (i.quantity ?? 1), 0);
   const hasBudget = (activeList?.budget ?? 0) > 0;
   const hasPrices = pricedItems.length > 0;
@@ -475,7 +509,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
           </div>
         </div>
 
-        {showCreateList && <CreateListModal {...{ newListName, setNewListName, newListPeriod, setNewListPeriod, newListStart, setNewListStart, newListEnd, setNewListEnd, newListBudget, setNewListBudget, createList, setShowCreateList }} />}
+        {showCreateList && <CreateListModal {...{ newListName, setNewListName, newListPeriod, setNewListPeriod, newListStart, setNewListStart, newListEnd, setNewListEnd, newListBudget, setNewListBudget, createList, setShowCreateList, busy }} />}
       </div>
     );
   }
@@ -970,13 +1004,8 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
         newListBudget, setNewListBudget,
         createList,
         setShowCreateList,
+        busy
       }} />}
-
-      {notice && (
-        <div className="fixed bottom-5 right-5 z-[90] rounded-2xl border border-border bg-card px-4 py-3 shadow-xl">
-          <p className="text-sm font-medium">{notice}</p>
-        </div>
-      )}
     </div>
   );
 }
@@ -988,7 +1017,7 @@ function CreateListModal({
   newListStart, setNewListStart,
   newListEnd, setNewListEnd,
   newListBudget, setNewListBudget,
-  createList, setShowCreateList,
+  createList, setShowCreateList, busy
 }: any) {
   const periods = [
     { key: "today", label: "Today", icon: "⚡", desc: "Quick shopping run" },
@@ -1091,9 +1120,10 @@ function CreateListModal({
           </button>
           <button
             onClick={createList}
-            disabled={!newListName.trim()}
-            className="flex-1 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
+            disabled={!newListName.trim() || busy}
+            className="flex-1 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
           >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
             Create List
           </button>
         </div>

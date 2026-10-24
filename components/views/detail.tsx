@@ -7,9 +7,12 @@ import {
   Heart, UtensilsCrossed, Clock3, ShoppingBag, ChefHat, X,
   Library, Check, Plus, Loader2
 } from "lucide-react";
+import { toast } from "sonner";
 import { Recipe } from "@/lib/recipes";
-import { RecipeImage } from "@/components/recipe-image"; // ✅ Replaced old imports
+import { RecipeImage } from "@/components/recipe-image";
 import { CollectionIcon } from "./collections";
+import { apiClient } from "@/lib/api-client";
+import { MESSAGES } from "@/lib/messages";
 
 const formatCost = (cost: { min: number; max: number }) =>
   `KSh ${cost.min.toLocaleString()}-${cost.max.toLocaleString()}`;
@@ -70,7 +73,6 @@ export function Detail({
   const [savingToCollections, setSavingToCollections] = useState(false);
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
 
   // ---- FETCH COLLECTIONS ----
   useEffect(() => {
@@ -79,55 +81,54 @@ export function Detail({
       setLoadingCollections(true);
       try {
         const [collectionsRes, currentRes] = await Promise.all([
-          fetch("/api/collections"),
-          fetch(`/api/collections/for-recipe?recipe_id=${recipe.id}`),
+          apiClient("/api/collections"),
+          apiClient(`/api/collections/for-recipe?recipe_id=${recipe.id}`),
         ]);
-        const collectionsData = await collectionsRes.json();
-        const currentData = await currentRes.json();
-        setCollections(collectionsData.collections ?? []);
-        setSelectedCollectionIds(new Set(currentData.collectionIds ?? []));
+        
+        if (collectionsRes.ok && currentRes.ok) {
+          setCollections(collectionsRes.data.collections ?? []);
+          setSelectedCollectionIds(new Set(currentRes.data.collectionIds ?? []));
+        } else {
+          toast.error(collectionsRes.error || currentRes.error);
+        }
       } catch (err) {
-        console.error(err);
+        toast.error(MESSAGES.network.generic);
       } finally {
         setLoadingCollections(false);
       }
     })();
   }, [showCollectionPicker, recipe.id]);
 
-  const showNotice = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(null), 2500);
-  };
-
   // ---- LOG COOK TO DB + START COOK MODE ----
   const handleStartCooking = async () => {
     cook();
     setCookMode(true);
     setLoggingCook(true);
-    try {
-      await fetch("/api/meals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipe_id: recipe.id,
-          recipe_name: recipe.name,
-        }),
-      });
-    } catch (err) {
-      console.error("Failed to log cook:", err);
-    } finally {
-      setLoggingCook(false);
+    
+    const res = await apiClient("/api/meals", {
+      method: "POST",
+      body: JSON.stringify({
+        recipe_id: recipe.id,
+        recipe_name: recipe.name,
+      }),
+    });
+
+    if (!res.ok) {
+      toast.error(res.error);
     }
+    setLoggingCook(false);
   };
 
   // ---- IMAGE UPLOAD ----
   const chooseImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
+    
     if (file.size > 8 * 1024 * 1024) {
-      alert("Image must be under 8MB");
+      toast.error("Image must be under 8MB");
       return;
     }
+    
     setUploading(true);
     const blobUrl = URL.createObjectURL(file);
     setPreview({ id: recipe.id, url: blobUrl });
@@ -136,66 +137,63 @@ export function Detail({
     formData.append("recipeId", recipe.id);
     formData.append("file", file);
 
-    try {
-      const response = await fetch("/api/recipe-images", { method: "POST", body: formData });
-      const payload = await response.json();
-      if (!response.ok || !payload.url) {
-        alert(payload.error || "Failed to upload image");
-        return;
-      }
+    // Note: apiClient sets Content-Type to application/json by default.
+    // For FormData, we must let the browser set the boundary.
+    const response = await fetch("/api/recipe-images", { method: "POST", body: formData });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || !payload.url) {
+      toast.error(payload.error || MESSAGES.network.generic);
+      setPreview(null);
+    } else {
       if (payload.scope === "global") {
         onGlobalImageChange?.(recipe.id, payload.url);
       } else {
         onImageChange((current) => ({ ...current, [recipe.id]: payload.url }));
       }
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("Failed to upload image");
-    } finally {
-      setUploading(false);
-      setPreview(null);
-      URL.revokeObjectURL(blobUrl);
+      toast.success("Image updated");
     }
+
+    setUploading(false);
+    setPreview(null);
+    URL.revokeObjectURL(blobUrl);
   };
 
   const pasteLink = async () => {
     const url = window.prompt("Paste the image link (https://...)")?.trim();
     if (!url) return;
     setUploading(true);
-    try {
-      const res = await fetch("/api/recipe-images", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipeId: recipe.id, url }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(payload.error || "Could not save link");
-        return;
-      }
-      onGlobalImageChange?.(recipe.id, payload.url);
-    } finally {
-      setUploading(false);
+
+    const res = await apiClient("/api/recipe-images", {
+      method: "PATCH",
+      body: JSON.stringify({ recipeId: recipe.id, url }),
+    });
+
+    if (!res.ok) {
+      toast.error(res.error);
+    } else {
+      onGlobalImageChange?.(recipe.id, res.data.url);
+      toast.success("Image link saved");
     }
+    setUploading(false);
   };
 
   const resetImage = async () => {
-    try {
-      const res = await fetch(`/api/recipe-images?recipeId=${recipe.id}`, { method: "DELETE" });
-      const payload = await res.json().catch(() => ({}));
-      if (res.ok && payload.scope === "global") {
-        onGlobalImageChange?.(recipe.id, null);
-      } else if (!res.ok) {
-        alert(payload.error || "Could not reset image");
-      }
-    } catch (error) {
-      console.error("Delete error:", error);
+    setUploading(true);
+    const res = await apiClient(`/api/recipe-images?recipeId=${recipe.id}`, { method: "DELETE" });
+    
+    if (res.ok && res.data.scope === "global") {
+      onGlobalImageChange?.(recipe.id, null);
+    } else if (!res.ok) {
+      toast.error(res.error);
     }
+
     onImageChange((current) => {
       const next = { ...current };
       delete next[recipe.id];
       return next;
     });
+    setUploading(false);
   };
 
   // ---- COLLECTIONS ----
@@ -209,34 +207,34 @@ export function Detail({
   const saveToCollections = async () => {
     setSavingToCollections(true);
     try {
-      const currentRes = await fetch(`/api/collections/for-recipe?recipe_id=${recipe.id}`);
-      const currentData = await currentRes.json();
-      const currentIds: string[] = currentData.collectionIds ?? [];
+      const currentRes = await apiClient(`/api/collections/for-recipe?recipe_id=${recipe.id}`);
+      if (!currentRes.ok) throw new Error(currentRes.error);
 
+      const currentIds: string[] = currentRes.data.collectionIds ?? [];
       const removedIds = currentIds.filter((id) => !selectedCollectionIds.has(id));
+      
+      // Remove items
       for (const collectionId of removedIds) {
-        await fetch(
-          `/api/collections/items?collection_id=${collectionId}&recipe_id=${recipe.id}`,
-          { method: "DELETE" }
-        );
+        const delRes = await apiClient(`/api/collections/items?collection_id=${collectionId}&recipe_id=${recipe.id}`, { method: "DELETE" });
+        if (!delRes.ok) throw new Error(delRes.error);
       }
 
+      // Add items
       if (selectedCollectionIds.size > 0) {
-        await fetch("/api/collections/items", {
+        const addRes = await apiClient("/api/collections/items", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             recipe_id: recipe.id,
             collection_ids: Array.from(selectedCollectionIds),
           }),
         });
+        if (!addRes.ok) throw new Error(addRes.error);
       }
 
       setShowCollectionPicker(false);
-      showNotice("Saved to collections");
-    } catch (err) {
-      console.error(err);
-      showNotice("Failed to save");
+      toast.success("Saved to collections");
+    } catch (err: any) {
+      toast.error(err.message || MESSAGES.network.generic);
     } finally {
       setSavingToCollections(false);
     }
@@ -245,39 +243,44 @@ export function Detail({
   const createAndAddNewCollection = async () => {
     if (!newCollectionName.trim()) return;
     setSavingToCollections(true);
-    try {
-      const res = await fetch("/api/collections", {
+    
+    const createRes = await apiClient("/api/collections", {
+      method: "POST",
+      body: JSON.stringify({
+        name: newCollectionName.trim(),
+        icon: "library",
+        color: "orange",
+      }),
+    });
+
+    if (!createRes.ok) {
+      toast.error(createRes.error);
+      setSavingToCollections(false);
+      return;
+    }
+
+    const newId = createRes.data.collection?.id;
+    if (newId) {
+      const addRes = await apiClient("/api/collections/items", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: newCollectionName.trim(),
-          icon: "library",
-          color: "orange",
+          recipe_id: recipe.id,
+          collection_ids: [newId],
         }),
       });
-      const data = await res.json();
-
-      if (data.collection?.id) {
-        await fetch("/api/collections/items", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recipe_id: recipe.id,
-            collection_ids: [data.collection.id],
-          }),
-        });
+      
+      if (!addRes.ok) {
+        toast.error(addRes.error);
+        setSavingToCollections(false);
+        return;
       }
-
-      setShowCollectionPicker(false);
-      setShowCreateNew(false);
-      setNewCollectionName("");
-      showNotice("Collection created & saved");
-    } catch (err) {
-      console.error(err);
-      showNotice("Failed to create");
-    } finally {
-      setSavingToCollections(false);
     }
+
+    setShowCollectionPicker(false);
+    setShowCreateNew(false);
+    setNewCollectionName("");
+    toast.success("Collection created & saved");
+    setSavingToCollections(false);
   };
 
   return (
@@ -326,6 +329,7 @@ export function Detail({
                 <button
                   className="secondary-button rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition"
                   onClick={resetImage}
+                  disabled={uploading}
                 >
                   Reset
                 </button>
@@ -669,13 +673,6 @@ export function Detail({
               {step === recipe.instructions.length - 1 ? "Done" : "Next"}
             </button>
           </footer>
-        </div>
-      )}
-
-      {/* NOTICE */}
-      {notice && (
-        <div className="fixed bottom-5 right-5 z-[90] rounded-2xl border border-border bg-card px-4 py-3 shadow-xl">
-          <p className="text-sm font-medium">{notice}</p>
         </div>
       )}
     </div>

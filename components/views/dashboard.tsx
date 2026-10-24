@@ -7,10 +7,12 @@ import {
   Bell, Clock3, Calendar, ChefHat, Flame, Plus,
   Utensils, Sunrise, Sun, Moon, Loader2, Wallet
 } from "lucide-react";
+import { toast } from "sonner";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
 import { MiniCard } from "@/components/mini-card";
 import { RecipeImage } from "@/components/recipe-image";
+import { apiClient } from "@/lib/api-client";
 
 interface DashboardProps {
   recipes: Recipe[];
@@ -63,25 +65,26 @@ export function Dashboard({
 
   useEffect(() => {
     (async () => {
-      try {
-        const today = new Date();
-        const start = today.toISOString().split("T")[0];
-        const end = new Date(today);
-        end.setDate(end.getDate() + 6);
-        const res = await fetch(`/api/plans?start=${start}&end=${end.toISOString().split("T")[0]}`);
-        const data = await res.json();
-        setPlans(data.plans ?? []);
-      } catch (err) { console.error(err); } 
-      finally { setLoadingPlans(false); }
+      const today = new Date();
+      const start = today.toISOString().split("T")[0];
+      const end = new Date(today);
+      end.setDate(end.getDate() + 6);
+      
+      const res = await apiClient(`/api/plans?start=${start}&end=${end.toISOString().split("T")[0]}`);
+      if (res.ok) {
+        setPlans(res.data.plans ?? []);
+      } else {
+        toast.error(res.error);
+      }
+      setLoadingPlans(false);
     })();
   }, []);
 
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch("/api/meals");
-        const data = await res.json();
-        const log = data.cookingLog ?? [];
+      const res = await apiClient("/api/meals");
+      if (res.ok) {
+        const log = res.data.cookingLog ?? [];
         const now = new Date();
         const thisWeek = log.filter((l: any) => (now.getTime() - new Date(l.cooked_at).getTime()) / (1000 * 60 * 60 * 24) <= 7).length;
         const cookDays = new Set(log.map((l: any) => l.cooked_at.split("T")[0]));
@@ -91,7 +94,9 @@ export function Dashboard({
           streak++; checkDate.setDate(checkDate.getDate() - 1);
         }
         setCookingStats({ thisWeek, total: log.length, streak });
-      } catch (err) { console.error(err); }
+      } else {
+        toast.error(res.error);
+      }
     })();
   }, []);
 
