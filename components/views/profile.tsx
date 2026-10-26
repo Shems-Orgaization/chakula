@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { MESSAGES, errorMessage } from "@/lib/messages";
+import { MESSAGES, authErrorMessage, dbErrorMessage } from "@/lib/messages";
 import { Captcha, captchaEnabled } from "@/components/auth-shell";
 import {
   Save, Mail, Calendar, Heart, UtensilsCrossed, ShoppingBag,
@@ -111,7 +111,7 @@ export function ProfileComponent() {
       });
       
       if (authError) {
-        toast.error(errorMessage(authError.status, authError.code));
+        toast.error(authErrorMessage(authError));
         return;
       }
 
@@ -122,7 +122,7 @@ export function ProfileComponent() {
       });
 
       if (dbError) {
-        toast.error(errorMessage(dbError.status, dbError.code));
+        toast.error(dbErrorMessage(dbError));
         return;
       }
 
@@ -159,19 +159,23 @@ export function ProfileComponent() {
       setCaptchaReset((n) => n + 1);
 
       if (signInError) { 
-        setPasswordError(MESSAGES.auth.currentPasswordIncorrect); 
+        setPasswordError(
+          signInError.code === "invalid_credentials"
+            ? MESSAGES.auth.currentPasswordIncorrect
+            : authErrorMessage(signInError),
+        ); 
         return; 
       }
       
       const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
       
       if (updateError) { 
-        setPasswordError(errorMessage(updateError.status, updateError.code)); 
+        setPasswordError(authErrorMessage(updateError)); 
         return; 
       }
 
-      setPasswordSuccess(MESSAGES.auth.passwordResetSuccess);
-      toast.success(MESSAGES.auth.passwordResetSuccess);
+      setPasswordSuccess("Password updated successfully.");
+      toast.success("Password updated successfully.");
       setCurrentPassword(""); 
       setNewPassword(""); 
       setConfirmPassword(""); 
