@@ -4,6 +4,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
+import { MESSAGES, authErrorMessage, dbErrorMessage } from "@/lib/messages";
+import { REMINDERS_ENABLED } from "@/lib/features";
 import {
   Moon, Sun, Bell, Coffee, Sunset, UtensilsCrossed, Apple, Fish, Leaf, AlertCircle, Check, Loader2, Save, X, Wallet
 } from "lucide-react";
@@ -35,7 +38,14 @@ const mealPeriods: MealPeriod[] = [
   { id: "evening", label: "Evening", icon: Sunset, description: "After 4pm" },
 ];
 
-export function SettingsComponent() {
+interface SettingsProps {
+  userBudget: number;
+  setUserBudget: (value: number) => void;
+  dark: boolean;
+  setDark: (value: boolean) => void;
+}
+
+export function SettingsComponent({ userBudget, setUserBudget, dark, setDark }: SettingsProps) {
   const router = useRouter();
   const supabase = createClient();
 
@@ -43,8 +53,7 @@ export function SettingsComponent() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [dark, setDark] = useState(false);
-  const [budget, setBudget] = useState(250);
+  const [budget, setBudget] = useState(userBudget);
 
   const [dietaryPreferences, setDietaryPreferences] = useState<string[]>([]);
   const [allergies, setAllergies] = useState<string[]>([]);
@@ -52,9 +61,13 @@ export function SettingsComponent() {
   const [reminders, setReminders] = useState({ morning: true, lunch: true, evening: true });
 
   useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
     loadSettings();
   }, []);
+
+  // Keep in step if the app finishes loading the saved budget after this page opens.
+  useEffect(() => {
+    setBudget(userBudget);
+  }, [userBudget]);
 
   async function loadSettings() {
     try {
@@ -62,15 +75,14 @@ export function SettingsComponent() {
       if (!user) { router.push("/login"); return; }
       setUser(user);
 
-      const { data: prefs } = await supabase.from("user_preferences").select("reminders, user_budget").eq("user_id", user.id).single();
+      const { data: prefs } = await supabase.from("user_preferences").select("reminders").eq("user_id", user.id).single();
       if (prefs?.reminders) setReminders(prefs.reminders);
-      if (prefs?.user_budget) setBudget(prefs.user_budget);
 
       setDietaryPreferences(user.user_metadata?.dietary_preferences || []);
       setAllergies(user.user_metadata?.allergies || []);
       setPreferredMealTypes(user.user_metadata?.preferred_meal_types || []);
     } catch (error) {
-      console.error("Error loading settings:", error);
+      toast.error(MESSAGES.network.generic);
     } finally {
       setLoading(false);
     }
@@ -78,22 +90,40 @@ export function SettingsComponent() {
 
   async function saveSettings() {
     if (!user) return;
+    if (!Number.isFinite(budget) || budget < 1 || budget > 100000) {
+      toast.error("Enter a daily budget between KES 1 and KES 100,000.");
+      return;
+    }
     setSaving(true);
     setSaved(false);
     try {
-      await supabase.auth.updateUser({
+      const { error: authError } = await supabase.auth.updateUser({
         data: { dietary_preferences: dietaryPreferences, allergies, preferred_meal_types: preferredMealTypes },
       });
-      await supabase.from("user_preferences").upsert({
-        user_id: user.id,
-        reminders,
-        user_budget: budget,
-        updated_at: new Date().toISOString(),
-      });
+      if (authError) {
+        toast.error(authErrorMessage(authError));
+        return;
+      }
+      const { error: dbError } = await supabase.from("user_preferences").upsert(
+        {
+          user_id: user.id,
+          reminders,
+          user_budget: budget,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+      if (dbError) {
+        toast.error(dbErrorMessage(dbError));
+        return;
+      }
+      // Tell the rest of the app, so it does not save the old budget back later.
+      setUserBudget(budget);
       setSaved(true);
+      toast.success("Settings saved.");
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
-      console.error("Error saving settings:", error);
+      toast.error(MESSAGES.network.generic);
     } finally {
       setSaving(false);
     }
@@ -104,11 +134,8 @@ export function SettingsComponent() {
   }
 
   function toggleTheme() {
-    const newDark = !dark;
-    setDark(newDark);
-    document.documentElement.classList.toggle("dark", newDark);
-    document.documentElement.style.colorScheme = newDark ? "dark" : "light";
-    localStorage.setItem("food-theme", JSON.stringify(newDark ? "dark" : "light"));
+    // The app applies the class and saves it (see food-app.tsx).
+    setDark(!dark);
   }
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="size-8 animate-spin text-accent" /></div>;
@@ -152,7 +179,7 @@ export function SettingsComponent() {
           />
         </SettingSection>
 
-        <SettingSection icon={AlertCircle} title="Allergies & restrictions" description="We'll flag recipes that contain these.">
+        <SettingSection icon={AlertCircle} title="Allergies & restrictions" description="Saved to your profile. Recipes are not checked against these yet, so always read the ingredients.">
           <EditableChipGroup 
             warn 
             options={allergyOptions} 
@@ -175,6 +202,7 @@ export function SettingsComponent() {
           />
         </SettingSection>
 
+        {REMINDERS_ENABLED && (
         <SettingSection icon={Bell} title="Meal reminders" description="A gentle nudge at the right time.">
           <div className="flex flex-col gap-3">
             {mealPeriods.map((period) => (
@@ -185,6 +213,7 @@ export function SettingsComponent() {
             ))}
           </div>
         </SettingSection>
+        )}
       </div>
     </div>
   );

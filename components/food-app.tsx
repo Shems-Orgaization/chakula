@@ -16,6 +16,8 @@ import { imageOverrideStorageKey } from "@/lib/image-overrides";
 import { read } from "@/lib/storage";
 import { View, MealType } from "@/lib/types";
 import { apiClient } from "@/lib/api-client";
+import { REMINDERS_ENABLED } from "@/lib/features";
+import { localDateStr } from "@/lib/dates";
 
 import { Dashboard } from "@/components/views/dashboard";
 import { Explore } from "@/components/views/explore";
@@ -77,7 +79,7 @@ export function FoodApp({
     isLoading: isCatalogLoading,
     error: catalogError
   } = useSWR<RecipesResponse>(
-    `/api/recipes?page=${page}&limit=50${showAll ? "&includeAll=true" : ""}`,
+    `/api/recipes?page=${page}&limit=200${showAll ? "&includeAll=true" : ""}`,
     fetcher,
     { revalidateOnFocus: false, shouldRetryOnError: false }
   );
@@ -246,6 +248,8 @@ export function FoodApp({
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
     localStorage.setItem("food-theme", JSON.stringify(dark ? "dark" : "light"));
 
+    // Wait until the user stops changing things, so typing a budget sends one save.
+    const timer = setTimeout(() => {
     void apiClient("/api/preferences", {
       method: "PATCH",
       body: JSON.stringify({
@@ -262,6 +266,8 @@ export function FoodApp({
         toast.error("Failed to sync preferences to the cloud. Your changes are saved locally.");
       }
     });
+    }, 700);
+    return () => clearTimeout(timer);
   }, [
     favorites, history, pantry, shopping, dark, reminders, imageOverrides, userBudget, mounted, userId,
   ]);
@@ -274,7 +280,7 @@ export function FoodApp({
       if (!listsRes.ok) return;
 
       const lists: any[] = listsRes.data.lists ?? [];
-      const todayStr = new Date().toISOString().split("T")[0];
+      const todayStr = localDateStr();
       const isActive = (l: any) =>
         l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
       const listId = lists.find(isActive)?.id ?? lists[0]?.id;
@@ -290,9 +296,9 @@ export function FoodApp({
     })();
   }, [view, userId]);
 
-  // ----- REMINDERS -----
+  // ----- REMINDERS (off until push notifications exist; see lib/features.ts) -----
   useEffect(() => {
-    if (!mounted || !userId) return;
+    if (!REMINDERS_ENABLED || !mounted || !userId) return;
     let cancelled = false;
     const checkReminders = async () => {
       const res = await apiClient("/api/reminders");
@@ -391,7 +397,6 @@ export function FoodApp({
   const toggle = (id: string) => setFavorites((current) => current.includes(id) ? current.filter((v) => v !== id) : [...current, id]);
   const cook = (recipe: Recipe) => {
     setHistory((current) => [recipe.id, ...current.filter((v) => v !== recipe.id)].slice(0, 20));
-    setShopping((current) => [...new Set([...current, ...recipe.ingredients.map((ingredient: { name: string }) => ingredient.name)])]);
   };
 
   // ----- EXPLORE FILTER -----
@@ -464,7 +469,7 @@ export function FoodApp({
           {view === "meals" && <Meals catalog={catalog} loved={loved} history={history} open={open} images={viewImages} />}
           {view === "shopping" && <Shopping items={shopping} setItems={setShopping} />}
           {view === "profile" && <ProfileComponent />}
-          {view === "settings" && <SettingsComponent />}
+          {view === "settings" && <SettingsComponent userBudget={userBudget} setUserBudget={setUserBudget} dark={dark} setDark={setDark} />}
         </main>
       </div>
       {notice && (

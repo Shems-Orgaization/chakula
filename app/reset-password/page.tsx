@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { MESSAGES, errorMessage } from "@/lib/messages";
+import { MESSAGES, authErrorMessage } from "@/lib/messages";
 import type { AuthChangeEvent } from "@supabase/supabase-js";
 
 export default function ResetPasswordPage() {
@@ -46,7 +46,7 @@ export default function ResetPasswordPage() {
     setLoading(false);
     
     if (error) {
-      return setError(errorMessage(error.status, error.code));
+      return setError(authErrorMessage(error));
     }
     
     setMessage("Password updated. Redirecting you to your dashboard…");

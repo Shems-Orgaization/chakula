@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { MESSAGES } from "@/lib/messages";
+import { localDateStr } from "@/lib/dates";
 
 interface ShoppingList {
   id: string;
@@ -57,7 +58,7 @@ const PERIOD_ICONS: Record<string, string> = {
   today: "⚡", week: "📅", month: "🗓️", custom: "📌", event: "🎉",
 };
 
-const formatDate = (d: Date) => d.toISOString().split("T")[0];
+const formatDate = (d: Date) => localDateStr(d);
 const formatDisplay = (dateStr: string) =>
   new Date(dateStr + "T00:00:00").toLocaleDateString("en-KE", { month: "short", day: "numeric" });
 

@@ -2,16 +2,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+// Reads a whole number from the URL. Bad or missing values fall back to `fallback`.
+function intParam(value: string | null, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (value === null || !Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+}
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const params = request.nextUrl.searchParams;
-  const query = params.get("q")?.trim() ?? "";
+  // Characters that mean something inside a PostgREST `or(...)` filter are removed.
+  const query = (params.get("q") ?? "").trim().slice(0, 80).replace(/[%,()]/g, "");
   const category = params.get("category")?.trim();
   const mealType = params.get("mealType")?.trim();
   const maxTime = Number(params.get("maxTime"));
   const maxCost = Number(params.get("maxCost"));
-  const page = Math.max(Number(params.get("page") ?? 1), 1);
-  const limit = Math.min(Math.max(Number(params.get("limit") ?? 50), 1), 100);
+  const page = intParam(params.get("page"), 1, 1, 1000);
+  const limit = intParam(params.get("limit"), 50, 1, 200);
   const offset = (page - 1) * limit;
 
   let builder = supabase
@@ -50,10 +58,10 @@ export async function GET(request: NextRequest) {
     equipment: ["Sufuria", "Wooden spoon"],
     image: recipe.image_url ?? null,
     tags: recipe.tags ?? [],
-    dietaryInfo: recipe.dietary_tags ?? [],       // ✅ FROM DB
-    allergens: recipe.allergens ?? [],            // ✅ FROM DB
-    popularity: recipe.comrade_score ?? 0,        // ✅ FROM DB
-    budgetTier: recipe.budget_tier ?? 500,        // ✅ FROM DB
+    dietaryInfo: recipe.dietary_tags ?? [],
+    allergens: recipe.allergens ?? [],
+    popularity: recipe.comrade_score ?? 0,
+    budgetTier: recipe.budget_tier ?? 500,
     isComradeFriendly: recipe.is_comrade_friendly ?? false,
   }));
 

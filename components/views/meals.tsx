@@ -7,6 +7,7 @@ import {
   Clock3, Plus, Loader2, TrendingUp, Edit3, Trash2, X, Check
 } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
 import { RecipeImage } from "@/components/recipe-image";
@@ -79,6 +80,7 @@ const timeAgo = (dateStr: string): string => {
 };
 
 export function Meals({ catalog, loved, history, open, images = {} }: MealsProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("favorites");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -300,11 +302,11 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
           )}
           {activeTab === "favorites" && (
             <button
-              onClick={() => open(catalog[0])}
+              onClick={() => router.push("/explore")}
               className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary"
             >
               <Heart className="size-4" />
-              Find favorites
+              Browse meals
             </button>
           )}
         </div>
@@ -569,7 +571,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                   ) : (
                     <PenSquare className="size-12 text-accent/40" />
                   )}
-                  <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
+                  <div className="absolute right-2 top-2 flex gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -604,7 +606,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{r.description}</p>
                   <div className="mt-3 flex gap-3 text-xs font-semibold text-muted-foreground">
                     <span>{r.total_time_minutes} min</span>
-                    <span>KES {r.cost_min_kes}-{r.cost_max_kes}</span>
+                    <span>≈ KES {r.cost_min_kes}–{r.cost_max_kes}</span>
                     <span>{r.difficulty}</span>
                   </div>
                 </div>

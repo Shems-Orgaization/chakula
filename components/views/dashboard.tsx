@@ -13,6 +13,8 @@ import { formatCost } from "@/lib/recommendations";
 import { MiniCard } from "@/components/mini-card";
 import { RecipeImage } from "@/components/recipe-image";
 import { apiClient } from "@/lib/api-client";
+import { REMINDERS_ENABLED } from "@/lib/features";
+import { localDateStr } from "@/lib/dates";
 
 interface DashboardProps {
   recipes: Recipe[];
@@ -66,11 +68,11 @@ export function Dashboard({
   useEffect(() => {
     (async () => {
       const today = new Date();
-      const start = today.toISOString().split("T")[0];
+      const start = localDateStr(today);
       const end = new Date(today);
       end.setDate(end.getDate() + 6);
       
-      const res = await apiClient(`/api/plans?start=${start}&end=${end.toISOString().split("T")[0]}`);
+      const res = await apiClient(`/api/plans?start=${start}&end=${localDateStr(end)}`);
       if (res.ok) {
         setPlans(res.data.plans ?? []);
       } else {
@@ -87,10 +89,10 @@ export function Dashboard({
         const log = res.data.cookingLog ?? [];
         const now = new Date();
         const thisWeek = log.filter((l: any) => (now.getTime() - new Date(l.cooked_at).getTime()) / (1000 * 60 * 60 * 24) <= 7).length;
-        const cookDays = new Set(log.map((l: any) => l.cooked_at.split("T")[0]));
+        const cookDays = new Set(log.map((l: any) => localDateStr(new Date(l.cooked_at))));
         let streak = 0;
         const checkDate = new Date();
-        while (cookDays.has(checkDate.toISOString().split("T")[0])) {
+        while (cookDays.has(localDateStr(checkDate))) {
           streak++; checkDate.setDate(checkDate.getDate() - 1);
         }
         setCookingStats({ thisWeek, total: log.length, streak });
@@ -101,7 +103,7 @@ export function Dashboard({
   }, []);
 
   const upcomingPlans = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = localDateStr();
     return plans.filter((p) => p.plan_date >= today).sort((a, b) => a.plan_date.localeCompare(b.plan_date)).slice(0, 3);
   }, [plans]);
 
@@ -109,8 +111,8 @@ export function Dashboard({
     const hour = new Date().getHours();
     const targetMeal = hour < 11 ? "Breakfast" : hour < 16 ? "Lunch" : "Dinner";
     
-    const matching = catalog.filter((r) => r.mealType === targetMeal && r.estimatedCost.min <= userBudget);
-    if (matching.length === 0) return catalog.filter(r => r.estimatedCost.min <= userBudget).slice(0, 3);
+    const matching = catalog.filter((r) => r.mealType === targetMeal && r.estimatedCost.max <= userBudget);
+    if (matching.length === 0) return catalog.filter(r => r.estimatedCost.max <= userBudget).slice(0, 3);
 
     return matching
       .map((r) => {
@@ -170,6 +172,7 @@ export function Dashboard({
             <p className="text-sm text-muted-foreground">Set your budget and we'll only show meals you can afford.</p>
           </div>
         </div>
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
         <div className="relative w-full sm:w-auto">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 font-semibold text-muted-foreground">KES</span>
           <input
@@ -180,20 +183,19 @@ export function Dashboard({
             placeholder="250"
           />
         </div>
-      </section>
-
-      <section className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {quickStats.map((stat) => (
-          <button key={stat.label} onClick={stat.onClick} className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
-            <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}>
-              <stat.icon className={`size-5 ${stat.color}`} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-              <p className="mt-0.5 font-serif text-2xl">{stat.value}</p>
-            </div>
-          </button>
-        ))}
+        <div className="flex flex-wrap gap-2">
+          {[100, 200, 300, 500].map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setUserBudget(v)}
+              className={`filter-pill ${userBudget === v ? "filter-pill-active" : ""}`}
+            >
+              KES {v}
+            </button>
+          ))}
+        </div>
+        </div>
       </section>
 
       {nowRecs.length > 0 && (
@@ -212,6 +214,26 @@ export function Dashboard({
           </div>
         </section>
       )}
+
+      {catalog.length > 0 && nowRecs.length === 0 && (
+        <p className="rounded-2xl border border-dashed border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          No meals fit KES {userBudget} yet. Try a higher budget.
+        </p>
+      )}
+
+      <section className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        {quickStats.map((stat) => (
+          <button key={stat.label} onClick={stat.onClick} className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
+            <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${stat.bg}`}>
+              <stat.icon className={`size-5 ${stat.color}`} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+              <p className="mt-0.5 font-serif text-2xl">{stat.value}</p>
+            </div>
+          </button>
+        ))}
+      </section>
 
       <section>
         <div className="mb-4 flex items-end justify-between">
@@ -241,7 +263,7 @@ export function Dashboard({
             {upcomingPlans.map((plan) => {
               const recipe = catalog.find((r) => r.id === plan.recipe_id);
               if (!recipe) return null;
-              const isToday = plan.plan_date === new Date().toISOString().split("T")[0];
+              const isToday = plan.plan_date === localDateStr();
               const MealIcon = plan.meal_type === "breakfast" ? Sunrise : plan.meal_type === "lunch" ? Sun : Moon;
               return (
                 <button key={plan.id} onClick={() => open(recipe)} className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-3 text-left hover:border-accent/50 hover:shadow-md">
@@ -266,7 +288,7 @@ export function Dashboard({
         )}
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
+      <section className={`grid gap-5 ${REMINDERS_ENABLED ? "lg:grid-cols-[1.5fr_1fr]" : ""}`}>
         <div className="rounded-2xl border border-border bg-card p-6">
           <div className="mb-5 flex items-center justify-between">
             <div><p className="eyebrow">Recently loved</p><h2 className="section-title mt-1 text-2xl">Good food, saved</h2></div>
@@ -285,6 +307,7 @@ export function Dashboard({
           )}
         </div>
 
+        {REMINDERS_ENABLED && (
         <div className="rounded-2xl border border-border bg-card p-6">
           <div className="flex items-center justify-between">
             <div><p className="eyebrow">Meal reminders</p><h2 className="mt-1 font-serif text-2xl">Stay on track</h2></div>
@@ -300,6 +323,7 @@ export function Dashboard({
             ))}
           </div>
         </div>
+        )}
       </section>
     </div>
   );

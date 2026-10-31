@@ -13,9 +13,7 @@ import { RecipeImage } from "@/components/recipe-image";
 import { CollectionIcon } from "./collections";
 import { apiClient } from "@/lib/api-client";
 import { MESSAGES } from "@/lib/messages";
-
-const formatCost = (cost: { min: number; max: number }) =>
-  `KSh ${cost.min.toLocaleString()}-${cost.max.toLocaleString()}`;
+import { formatCost } from "@/lib/recommendations";
 
 interface DetailProps {
   recipe: Recipe;
@@ -99,9 +97,34 @@ export function Detail({
     })();
   }, [showCollectionPicker, recipe.id]);
 
+  // Keep the screen awake in cook mode (floury hands).
+  useEffect(() => {
+    if (!cookMode || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    let cancelled = false;
+    const request = async () => {
+      try {
+        const sentinel = await navigator.wakeLock.request("screen");
+        if (cancelled) void sentinel.release();
+        else lock = sentinel;
+      } catch {}
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void request();
+    };
+    void request();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      void lock?.release();
+    };
+  }, [cookMode]);
+
   // ---- LOG COOK TO DB + START COOK MODE ----
   const handleStartCooking = async () => {
     cook();
+    setStep(0);
     setCookMode(true);
     setLoggingCook(true);
     
@@ -124,8 +147,8 @@ export function Detail({
     const file = event.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
     
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error("Image must be under 8MB");
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error("Image must be under 4MB.");
       return;
     }
     
@@ -137,19 +160,20 @@ export function Detail({
     formData.append("recipeId", recipe.id);
     formData.append("file", file);
 
-    // Note: apiClient sets Content-Type to application/json by default.
-    // For FormData, we must let the browser set the boundary.
-    const response = await fetch("/api/recipe-images", { method: "POST", body: formData });
-    const payload = await response.json().catch(() => ({}));
+    const res = await apiClient<{ url?: string; scope?: string }>("/api/recipe-images", {
+      method: "POST",
+      body: formData,
+    });
+    const payload = res.data;
 
-    if (!response.ok || !payload.url) {
-      toast.error(payload.error || MESSAGES.network.generic);
+    if (!res.ok || !payload?.url) {
+      toast.error(res.error ?? MESSAGES.network.generic);
       setPreview(null);
     } else {
       if (payload.scope === "global") {
         onGlobalImageChange?.(recipe.id, payload.url);
       } else {
-        onImageChange((current) => ({ ...current, [recipe.id]: payload.url }));
+        onImageChange((current) => ({ ...current, [recipe.id]: payload.url! }));
       }
       toast.success("Image updated");
     }
@@ -374,6 +398,9 @@ export function Detail({
                 {recipe.difficulty}
               </span>
             </div>
+            <p className="-mt-3 text-xs text-muted-foreground">
+              Approximate cost of ingredients only. Gas or charcoal not included.
+            </p>
 
             <div>
               <h2 className="detail-heading mb-3 font-serif text-2xl">
@@ -454,7 +481,7 @@ export function Detail({
             </h2>
             <ol className="steps-list space-y-4">
               {recipe.instructions.map((s, i) => (
-                <li key={s} className="flex gap-3">
+                <li key={`${i}-${s}`} className="flex gap-3">
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-bold text-accent">
                     {i + 1}
                   </span>

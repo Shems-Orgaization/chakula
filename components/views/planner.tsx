@@ -11,7 +11,7 @@ import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
 import { RecipeImage } from "@/components/recipe-image";
 import { apiClient } from "@/lib/api-client";
-import { MESSAGES } from "@/lib/messages";
+import { addToShoppingList } from "@/lib/shopping-actions";
 
 interface Plan {
   id: string;
@@ -165,52 +165,18 @@ export function Planner({
     }
 
     setSaving(true);
-    try {
-      // 1. Find active list
-      const listsRes = await apiClient("/api/shopping-lists");
-      if (!listsRes.ok) throw new Error(listsRes.error);
-      
-      const lists = listsRes.data.lists ?? [];
-      const todayStr = new Date().toISOString().split("T")[0];
-      const isActive = (l: any) => l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
-      
-      let listId = lists.find(isActive)?.id ?? lists[0]?.id;
-
-      // 2. Create if missing
-      if (!listId) {
-        const createRes = await apiClient("/api/shopping-lists", {
-          method: "POST",
-          body: JSON.stringify({
-            name: "Weekly Groceries",
-            period_type: "week",
-            start_date: todayStr,
-            budget: 0,
-          }),
-        });
-        if (!createRes.ok) throw new Error(createRes.error);
-        listId = createRes.data.list?.id;
-      }
-
-      if (!listId) throw new Error("Could not resolve a shopping list");
-
-      // 3. Add items
-      const addRes = await apiClient("/api/shopping", {
-        method: "POST",
-        body: JSON.stringify({
-          items: Array.from(allIngredients),
-          list_id: listId,
-          source: "recipe",
-        }),
-      });
-      if (!addRes.ok) throw new Error(addRes.error);
-
+    const res = await addToShoppingList(Array.from(allIngredients));
+    if (res.ok) {
       setShopping([...new Set([...shopping, ...allIngredients])]);
-      toast.success(`Added ${allIngredients.size} items to your shopping list`);
-    } catch (err: any) {
-      toast.error(err.message || MESSAGES.network.generic);
-    } finally {
-      setSaving(false);
+      toast.success(
+        res.added > 0
+          ? `Added ${res.added} item${res.added === 1 ? "" : "s"} to your shopping list`
+          : "Everything is already on your shopping list",
+      );
+    } else {
+      toast.error(res.error);
     }
+    setSaving(false);
   };
 
   // ----- CLEAR WEEK -----
@@ -295,7 +261,7 @@ export function Planner({
         </div>
         <div className="rounded-2xl border border-border bg-card p-5">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Estimated Cost</p>
-          <p className="mt-2 font-serif text-4xl">KES {totalCost.toLocaleString()}</p>
+          <p className="mt-2 font-serif text-4xl">≈ KES {totalCost.toLocaleString()}</p>
         </div>
         <div className="rounded-2xl border border-border bg-card p-5">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Shopping Items</p>
@@ -404,7 +370,7 @@ export function Planner({
                             </button>
                             <button
                               onClick={() => removeMeal(plan.id)}
-                              className="absolute -right-2 -top-2 rounded-full bg-red-500 p-1 text-white opacity-0 shadow-md transition group-hover:opacity-100"
+                              className="absolute -right-2 -top-2 rounded-full bg-red-500 p-1 text-white opacity-100 shadow-md transition sm:opacity-0 sm:group-hover:opacity-100"
                               aria-label="Remove meal"
                             >
                               <X className="size-3" />
