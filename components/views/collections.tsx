@@ -391,7 +391,7 @@ function CollectionDetail({
   };
 
   const filtered = items.filter((item) =>
-    !search || item.recipe.name.toLowerCase().includes(search.toLowerCase())
+    !search || item.recipe?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -453,6 +453,7 @@ function CollectionDetail({
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((item) => {
             const r = item.recipe;
+            if (!r) return null;
             return (
               <div key={item.id} className="group relative overflow-hidden rounded-2xl border border-border bg-card transition hover:shadow-lg">
                 <button onClick={() => open(r)} className="block w-full">
@@ -460,7 +461,7 @@ function CollectionDetail({
                 </button>
                 <button
                   onClick={() => removeItem(r.id)}
-                  className="absolute right-3 top-3 rounded-full bg-background/90 p-2 opacity-0 backdrop-blur transition group-hover:opacity-100 hover:bg-red-500 hover:text-white"
+                  className="absolute right-3 top-3 rounded-full bg-background/90 p-2 opacity-100 backdrop-blur transition sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-500 hover:text-white"
                   aria-label="Remove from collection"
                 >
                   <X className="size-4" />

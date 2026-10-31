@@ -46,4 +46,6 @@ export function rankRecipes(recipes: Recipe[], prefs: RecommendationPrefs, rejec
     .sort((a, b) => b.score - a.score)
 }
 
-export const formatCost = (cost: Recipe['estimatedCost']) => `KES ${cost.min}–${cost.max}`
+// "≈" tells the user the price is approximate. Costs cover ingredients only.
+export const formatCost = (cost: Recipe['estimatedCost']) =>
+  cost.min === cost.max ? `≈ KES ${cost.min}` : `≈ KES ${cost.min}–${cost.max}`

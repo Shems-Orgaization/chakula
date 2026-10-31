@@ -3,6 +3,8 @@
 
 import { useState, useMemo } from "react";
 import { X } from "lucide-react";
+import { toast } from "sonner";
+import { addToShoppingList } from "@/lib/shopping-actions";
 import { Recipe } from "@/lib/recipes";
 import { matchRecipe, Match } from "@/lib/recommendations";
 import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
@@ -27,36 +29,47 @@ export function Pantry({
   images = {}, // ✅ ADDED
 }: PantryProps) {
   const [input, setInput] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
 
   const matches = useMemo(
     () =>
       catalog
         .map((r) => matchRecipe(r, pantry))
+        .filter((m) => m.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 8),
     [pantry, catalog],
   );
 
-  const add = async () => {
-    const ingredientName = input.trim();
-    if (!ingredientName || isAdding) return;
-
-    setIsAdding(true);
-    try {
-      const response = await fetch("/api/pantry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ingredient_name: ingredientName }),
-      });
-
-      if (response.ok) {
-        setPantry([...new Set([...pantry, ingredientName])]);
-        setInput("");
-      }
-    } finally {
-      setIsAdding(false);
+  const add = () => {
+    const name = input.trim();
+    if (!name) return;
+    if (pantry.some((x) => x.toLowerCase() === name.toLowerCase())) {
+      toast.info("That's already in your pantry.");
+      setInput("");
+      return;
     }
+
+    // The pantry is saved with your preferences (see food-app.tsx).
+    setPantry([...pantry, name]);
+    setInput("");
+  };
+
+  const shopMissing = async (missing: string[]) => {
+    if (missing.length === 0) {
+      toast.info("You already have everything for this one.");
+      return;
+    }
+    const res = await addToShoppingList(missing);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    setShopping([...new Set([...shopping, ...missing])]);
+    toast.success(
+      res.added > 0
+        ? `Added ${res.added} item${res.added === 1 ? "" : "s"} to your shopping list.`
+        : "Those are already on your shopping list.",
+    );
   };
 
   return (
@@ -80,9 +93,8 @@ export function Pantry({
           <button
             className="primary-button bg-accent text-accent-foreground px-4 py-2 rounded-lg font-semibold hover:opacity-90 disabled:opacity-60"
             onClick={add}
-            disabled={isAdding}
           >
-            {isAdding ? "Adding…" : "Add"}
+            Add
           </button>
         </div>
 
@@ -100,6 +112,14 @@ export function Pantry({
       </div>
 
       <h2 className="section-title text-3xl">Here&apos;s what you can make</h2>
+
+      {matches.length === 0 && (
+        <p className="rounded-xl border border-dashed border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          {pantry.length === 0
+            ? "Add what's in your kitchen above and we'll show meals you can cook."
+            : "No meals match yet. Add a few more ingredients."}
+        </p>
+      )}
 
       <div className="flex flex-col gap-3">
         {matches.map((m) => (
@@ -130,10 +150,8 @@ export function Pantry({
               <span className="font-semibold text-accent">{m.score}%</span>
             </button>
             <button
-              className="secondary-button hidden sm:inline-flex rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary transition"
-              onClick={() =>
-                setShopping([...new Set([...shopping, ...m.missing])])
-              }
+              className="secondary-button inline-flex shrink-0 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary transition sm:px-4 sm:text-sm"
+              onClick={() => void shopMissing(m.missing)}
             >
               Shop missing
             </button>

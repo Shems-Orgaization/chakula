@@ -10,6 +10,9 @@ import {
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
 import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
+import { toast } from "sonner";
+import { apiClient } from "@/lib/api-client";
+import { MESSAGES } from "@/lib/messages";
 
 interface Suggestion {
   recipe: Recipe;
@@ -26,6 +29,7 @@ interface SurpriseProps {
   images?: Record<string, string>;
   onSave?: (id: string) => void;
   favorites?: string[];
+  defaultBudget?: number;
 }
 
 const MOODS = [
@@ -41,8 +45,11 @@ export function Surprise({
   images = {},
   onSave,
   favorites = [],
+  defaultBudget,
 }: SurpriseProps) {
-  const [budget, setBudget] = useState(300);
+  // Start from the budget the user set on the home screen (kept inside the slider range).
+  const startBudget = Math.min(800, Math.max(80, defaultBudget ?? 300));
+  const [budget, setBudget] = useState(startBudget);
   const [time, setTime] = useState(45);
   const [mealType, setMealType] = useState<Recipe["mealType"] | undefined>();
   const [difficulty, setDifficulty] = useState<"Easy" | "Medium" | undefined>();
@@ -66,10 +73,13 @@ export function Surprise({
       if (mealType) params.set("mealType", mealType);
       if (difficulty) params.set("difficulty", difficulty);
 
-      const res = await fetch(`/api/surprise?${params}`);
-      const data = await res.json();
+      const res = await apiClient<{ suggestions?: Suggestion[] }>(`/api/surprise?${params}`);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
 
-      const newSuggestions: Suggestion[] = data.suggestions ?? [];
+      const newSuggestions: Suggestion[] = res.data?.suggestions ?? [];
       setSuggestions(newSuggestions);
 
       if (newSuggestions.length > 0) {
@@ -86,7 +96,7 @@ export function Surprise({
         });
       }
     } catch (err) {
-      console.error(err);
+      toast.error(MESSAGES.network.generic);
     } finally {
       setLoading(false);
       setInitialLoad(false);
@@ -102,7 +112,7 @@ export function Surprise({
     if (!mood) return;
     if (activeMood === moodKey) {
       setActiveMood(null);
-      setBudget(300);
+      setBudget(startBudget);
       setTime(45);
     } else {
       setActiveMood(moodKey);
@@ -118,9 +128,8 @@ export function Surprise({
   }, [budget, time, mealType, difficulty]);
 
   const handleCook = (recipe: Recipe) => {
-    void fetch("/api/surprise", {
+    void apiClient("/api/surprise", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recipe_id: recipe.id, action: "cooked" }),
     });
     onCook(recipe);
@@ -128,9 +137,8 @@ export function Surprise({
   };
 
   const handleSave = (recipe: Recipe) => {
-    void fetch("/api/surprise", {
+    void apiClient("/api/surprise", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recipe_id: recipe.id, action: "saved" }),
     });
     onSave?.(recipe.id);
