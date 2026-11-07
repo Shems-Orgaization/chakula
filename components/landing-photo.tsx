@@ -1,44 +1,23 @@
 // components/landing-photo.tsx
-"use client";
-
-import { useEffect, useRef, useState } from "react";
+import Image, { type StaticImageData } from "next/image";
 
 interface PhotoProps {
-  srcs: string[];
+  // Accepts a string (URL) OR a Next.js imported image object
+  srcs: string | StaticImageData; 
   alt: string;
   className?: string;
   priority?: boolean;
 }
 
-/** Tries each source in order. If all fail it renders nothing, so the parent's background shows. */
-export function Photo({ srcs, alt, className = "", priority = false }: PhotoProps) {
-  return <Chain key={srcs.join("|")} srcs={srcs} alt={alt} className={className} priority={priority} />;
-}
-
-function Chain({ srcs, alt, className, priority }: Required<PhotoProps>) {
-  const [index, setIndex] = useState(0);
-  const ref = useRef<HTMLImageElement>(null);
-  const src = srcs[index];
-
-  // Catches images that already failed before React attached onError
-  useEffect(() => {
-    const el = ref.current;
-    if (el && el.complete && el.naturalWidth === 0) setIndex((i) => i + 1);
-  }, [src]);
-
-  if (!src) return null;
-
+export function Photo({ srcs, alt, className, priority }: PhotoProps) {
   return (
-    <img
-      ref={ref}
-      key={src}
-      src={src}
+    <Image
+      src={srcs}
       alt={alt}
-      loading={priority ? "eager" : "lazy"}
-      fetchPriority={priority ? "high" : "auto"}
-      decoding="async"
-      onError={() => setIndex((i) => i + 1)}
       className={className}
+      priority={priority}
+      fill
+      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
     />
   );
 }

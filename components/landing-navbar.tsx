@@ -5,22 +5,17 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChefHat, Menu, X } from "lucide-react";
 
-const LINKS = [
-  { href: "#features", label: "Features" },
-  { href: "#how-it-works", label: "How it works" },
-  { href: "#meals", label: "Meals" },
-  { href: "#faq", label: "FAQ" },
-];
+import { NAV_LINKS, WRAP } from "@/lib/landing-shared";
 
 const focus =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 export function LandingNavbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => setScrolled(window.scrollY > 16);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -28,10 +23,8 @@ export function LandingNavbar() {
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const mq = window.matchMedia("(min-width: 1024px)");
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const mq = window.matchMedia("(min-width: 768px)");
     const onChange = () => mq.matches && setOpen(false);
     window.addEventListener("keydown", onKey);
     mq.addEventListener("change", onChange);
@@ -41,103 +34,92 @@ export function LandingNavbar() {
     };
   }, [open]);
 
-  const solid = scrolled || open;
-
+  // The header is a zero-height sticky wrapper. It reserves no strip of its own,
+  // so the hero's full-bleed green runs behind the floating pill, and the pill
+  // keeps floating over every other section while you scroll.
   return (
-    <header
-      className={`fixed inset-x-0 top-0 z-50 border-b transition-colors duration-300 ${
-        solid
-          ? "border-border bg-background/90 text-foreground backdrop-blur"
-          : "border-transparent text-white"
-      }`}
-    >
-      <nav aria-label="Main" className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
-        <Link href="/" aria-label="Chakula home" className={`flex items-center gap-2.5 rounded-lg ${focus}`}>
-          <span className="flex size-9 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-            <ChefHat className="size-5" />
-          </span>
-          <span className="font-serif text-2xl leading-none">Chakula</span>
-        </Link>
-
-        <ul className="hidden items-center gap-1 lg:flex">
-          {LINKS.map((l) => (
-            <li key={l.href}>
-              <a
-                href={l.href}
-                className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors ${focus} ${
-                  solid
-                    ? "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    : "text-white/80 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                {l.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-
-        <div className="hidden items-center gap-2 lg:flex">
-          <Link
-            href="/login"
-            className={`inline-flex h-10 items-center rounded-lg px-4 text-sm font-semibold transition-colors ${focus} ${
-              solid ? "text-foreground hover:bg-secondary" : "text-white hover:bg-white/10"
-            }`}
-          >
-            Log in
-          </Link>
-          <Link
-            href="/signup"
-            className={`inline-flex h-10 items-center rounded-lg bg-accent px-5 text-sm font-semibold text-accent-foreground transition hover:opacity-90 ${focus}`}
-          >
-            Get started
-          </Link>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-          aria-controls="mobile-menu"
-          className={`flex size-11 items-center justify-center rounded-lg transition-colors lg:hidden ${focus} ${
-            solid ? "hover:bg-secondary" : "hover:bg-white/10"
+    <header className="sticky top-0 z-50 h-0">
+      <div className={`${WRAP} pt-3 sm:pt-4`}>
+        <nav
+          aria-label="Main"
+          className={`flex h-14 items-center justify-between rounded-full border border-border bg-card/90 pl-4 pr-2 backdrop-blur transition-shadow duration-300 sm:h-16 sm:pl-6 ${
+            scrolled || open ? "shadow-lg" : "shadow-sm"
           }`}
         >
-          {open ? <X className="size-6" /> : <Menu className="size-6" />}
-        </button>
-      </nav>
+          <Link href="/" aria-label="Chakula home" className={`flex items-center gap-2.5 rounded-full ${focus}`}>
+            <span className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              <ChefHat className="size-[18px]" />
+            </span>
+            <span className="text-lg font-extrabold tracking-tight">Chakula</span>
+          </Link>
 
-      {open && (
-        <div id="mobile-menu" className="border-t border-border bg-background px-5 pb-6 pt-3 text-foreground lg:hidden">
-          <ul className="flex flex-col">
-            {LINKS.map((l) => (
-              <li key={l.href}>
+          <ul className="hidden items-center gap-1 rounded-full bg-secondary/70 p-1 md:flex">
+            {NAV_LINKS.map((link) => (
+              <li key={link.href}>
                 <a
-                  href={l.href}
-                  onClick={() => setOpen(false)}
-                  className="flex h-12 items-center rounded-lg px-2 text-base font-medium hover:bg-secondary"
+                  href={link.href}
+                  className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-semibold text-secondary-foreground transition hover:bg-card ${focus}`}
                 >
-                  {l.label}
+                  {link.label}
                 </a>
               </li>
             ))}
           </ul>
-          <div className="mt-4 grid gap-3 border-t border-border pt-5">
+
+          <div className="flex items-center gap-1 sm:gap-2">
             <Link
               href="/login"
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-border text-sm font-semibold hover:bg-secondary"
+              className={`hidden h-10 items-center rounded-full px-4 text-sm font-semibold transition hover:bg-secondary sm:inline-flex ${focus}`}
             >
               Log in
             </Link>
             <Link
               href="/signup"
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-accent text-sm font-semibold text-accent-foreground hover:opacity-90"
+              className={`inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-90 sm:px-5 ${focus}`}
             >
               Get started
             </Link>
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+              aria-controls="mobile-menu"
+              className={`flex size-10 items-center justify-center rounded-full transition hover:bg-secondary md:hidden ${focus}`}
+            >
+              {open ? <X className="size-5" /> : <Menu className="size-5" />}
+            </button>
           </div>
-        </div>
-      )}
+        </nav>
+
+        {open && (
+          <div
+            id="mobile-menu"
+            className="mt-2 rounded-3xl border border-border bg-card p-3 shadow-xl md:hidden"
+          >
+            <ul className="grid">
+              {NAV_LINKS.map((link) => (
+                <li key={link.href}>
+                  <a
+                    href={link.href}
+                    onClick={() => setOpen(false)}
+                    className="flex h-12 items-center rounded-2xl px-4 text-base font-semibold transition hover:bg-secondary"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <Link
+              href="/login"
+              onClick={() => setOpen(false)}
+              className="mt-2 flex h-12 items-center justify-center rounded-full border border-border text-sm font-semibold transition hover:bg-secondary"
+            >
+              Log in
+            </Link>
+          </div>
+        )}
+      </div>
     </header>
   );
 }

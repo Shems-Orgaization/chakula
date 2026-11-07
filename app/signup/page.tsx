@@ -38,7 +38,7 @@ export default function SignupPage() {
     if (password.length < 8) return setError(MESSAGES.auth.passwordTooShort);
     if (password !== confirm) return setError(MESSAGES.auth.passwordMismatch);
     if (captchaEnabled && !captchaToken) {
-      return setError("Please wait for the security check to finish, then try again.");
+      return setError("Please tick \"I'm not a robot\" first, then try again.");
     }
 
     setLoading(true);
@@ -53,7 +53,7 @@ export default function SignupPage() {
         captchaToken: captchaToken ?? undefined,
       },
     });
-    
+
     setLoading(false);
     setCaptchaToken(null);
     setCaptchaReset((n) => n + 1);
@@ -78,8 +78,8 @@ export default function SignupPage() {
       headline="Make meals yours."
       text="Create an account to keep your pantry, plans and favourites synced across every device."
     >
-      <h1 className="font-serif text-4xl tracking-tight">Create your account.</h1>
-      <p className="mt-3 leading-6 text-muted-foreground">
+      <h1 className="text-center font-serif text-4xl tracking-tight">Create your account.</h1>
+      <p className="mt-3 text-center leading-6 text-muted-foreground">
         Takes a minute. You will confirm your email, then sign in.
       </p>
 

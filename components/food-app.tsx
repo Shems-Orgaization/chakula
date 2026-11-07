@@ -66,18 +66,16 @@ export function FoodApp({
 }) {
   const router = useRouter();
 
-  // ----- PAGINATION STATE -----
   const [showAll, setShowAll] = useState(false);
   const [page, setPage] = useState(1);
   const [allRecipes, setAllRecipes] = useState<Recipe[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // ----- DATA -----
   const {
     data: catalogResponse,
     isLoading: isCatalogLoading,
-    error: catalogError
+    error: catalogError,
   } = useSWR<RecipesResponse>(
     `/api/recipes?page=${page}&limit=200${showAll ? "&includeAll=true" : ""}`,
     fetcher,
@@ -119,13 +117,11 @@ export function FoodApp({
 
   const catalog = allRecipes;
 
-  // ----- USER -----
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // ----- APP STATE -----
   const [view, setView] = useState<View>(initialView);
   const [selected, setSelected] = useState<Recipe | null>(initialRecipe ?? null);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -148,7 +144,6 @@ export function FoodApp({
   const [mounted, setMounted] = useState(false);
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>({});
 
-  // ✅ Budget State
   const [userBudget, setUserBudget] = useState<number>(() => {
     if (typeof window === "undefined") return 250;
     const saved = localStorage.getItem(store.budget);
@@ -169,7 +164,6 @@ export function FoodApp({
     setSelected((s) => (s && s.id === id ? { ...s, image: url } : s));
   }, []);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const firedReminders = useRef<Set<string>>(new Set());
 
   const loadMore = useCallback(() => {
@@ -179,22 +173,16 @@ export function FoodApp({
   }, [hasMore, isLoadingMore]);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("sidebar-collapsed");
-    if (saved !== null) setSidebarCollapsed(saved === "true");
-  }, []);
-
-  useEffect(() => {
     setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
-  // ----- LOAD USER DATA -----
   useEffect(() => {
     let active = true;
     (async () => {
       const supabase = createSupabaseClient();
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
-        router.replace("/login"); 
+        router.replace("/login");
         return;
       }
       if (!active) return;
@@ -220,7 +208,6 @@ export function FoodApp({
         setImageOverrides(prefs.image_overrides ?? read(imageOverrideStorageKey, {}));
         if (prefs.user_budget) setUserBudget(prefs.user_budget);
       } else {
-        // Fallback to local storage if API fails
         setFavorites(read(store.favorites, []));
         setHistory(read(store.history, []));
         setPantry(read(store.pantry, []));
@@ -240,7 +227,6 @@ export function FoodApp({
     return () => { active = false; };
   }, [router]);
 
-  // ----- SYNC PREFERENCES -----
   useEffect(() => {
     if (!mounted || !userId) return;
 
@@ -248,31 +234,29 @@ export function FoodApp({
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
     localStorage.setItem("food-theme", JSON.stringify(dark ? "dark" : "light"));
 
-    // Wait until the user stops changing things, so typing a budget sends one save.
     const timer = setTimeout(() => {
-    void apiClient("/api/preferences", {
-      method: "PATCH",
-      body: JSON.stringify({
-        favorites,
-        history,
-        pantry,
-        shopping,
-        reminders,
-        image_overrides: imageOverrides,
-        user_budget: userBudget,
-      }),
-    }).then(res => {
-      if (!res.ok && res.status !== 401) {
-        toast.error("Failed to sync preferences to the cloud. Your changes are saved locally.");
-      }
-    });
+      void apiClient("/api/preferences", {
+        method: "PATCH",
+        body: JSON.stringify({
+          favorites,
+          history,
+          pantry,
+          shopping,
+          reminders,
+          image_overrides: imageOverrides,
+          user_budget: userBudget,
+        }),
+      }).then(res => {
+        if (!res.ok && res.status !== 401) {
+          toast.error("Failed to sync preferences to the cloud. Your changes are saved locally.");
+        }
+      });
     }, 700);
     return () => clearTimeout(timer);
   }, [
     favorites, history, pantry, shopping, dark, reminders, imageOverrides, userBudget, mounted, userId,
   ]);
 
-  // ----- REFETCH SHOPPING -----
   useEffect(() => {
     if (view !== "shopping" || !userId) return;
     (async () => {
@@ -284,9 +268,9 @@ export function FoodApp({
       const isActive = (l: any) =>
         l.end_date ? l.start_date <= todayStr && todayStr <= l.end_date : l.start_date === todayStr;
       const listId = lists.find(isActive)?.id ?? lists[0]?.id;
-      
+
       if (!listId) { setShopping([]); return; }
-      
+
       const itemsRes = await apiClient(`/api/shopping?list_id=${listId}`);
       if (itemsRes.ok) {
         setShopping(
@@ -296,14 +280,13 @@ export function FoodApp({
     })();
   }, [view, userId]);
 
-  // ----- REMINDERS (off until push notifications exist; see lib/features.ts) -----
   useEffect(() => {
     if (!REMINDERS_ENABLED || !mounted || !userId) return;
     let cancelled = false;
     const checkReminders = async () => {
       const res = await apiClient("/api/reminders");
       if (!res.ok) return;
-      
+
       const settings = res.data.settings ?? [];
       const history = res.data.history ?? [];
       if (cancelled) return;
@@ -331,7 +314,7 @@ export function FoodApp({
 
         const fireKey = `${setting.meal_type}-${todayStr}`;
         if (firedReminders.current.has(fireKey)) continue;
-        
+
         const alreadyFiredDB = history.some(
           (h: any) => h.meal_type === setting.meal_type && new Date(h.fired_at).toDateString() === now.toDateString()
         );
@@ -356,29 +339,28 @@ export function FoodApp({
           }
         }
         firedReminders.current.add(fireKey);
-        
-        void apiClient("/api/reminder-history", { 
-          method: "POST", 
-          body: JSON.stringify({ meal_type: setting.meal_type, title, message }) 
+
+        void apiClient("/api/reminder-history", {
+          method: "POST",
+          body: JSON.stringify({ meal_type: setting.meal_type, title, message })
         });
-        
+
         setTimeout(() => setNotice(null), 8000);
       }
     };
-    
+
     checkReminders();
     const interval = setInterval(checkReminders, 60000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [mounted, userId]);
 
-  // ----- LOAD SELECTED RECIPE -----
   useEffect(() => {
     async function loadRecipe() {
       if (initialView === "detail" && selectedId) {
         if (initialRecipe) return;
         let found = catalog.find((r) => r.id === selectedId);
         if (found) { setSelected(found); setView("detail"); return; }
-        
+
         const res = await apiClient(`/api/recipes/${selectedId}`);
         if (res.ok) {
           setSelected(res.data);
@@ -392,14 +374,12 @@ export function FoodApp({
     if (selectedId && (catalog.length > 0 || initialView === "detail")) loadRecipe();
   }, [initialView, selectedId, catalog, router, initialRecipe]);
 
-  // ----- ACTIONS -----
   const open = (recipe: Recipe) => { setSelected(recipe); setView("detail"); router.push(`/recipe/${recipe.id}`); };
   const toggle = (id: string) => setFavorites((current) => current.includes(id) ? current.filter((v) => v !== id) : [...current, id]);
   const cook = (recipe: Recipe) => {
     setHistory((current) => [recipe.id, ...current.filter((v) => v !== recipe.id)].slice(0, 20));
   };
 
-  // ----- EXPLORE FILTER -----
   const browse = useMemo(() => {
     return catalog.filter((recipe) => {
       const matchesCategory = category === "All" || category === "Comrade Favorites" || recipe.category === category || (category === "Breakfast" && recipe.mealType === "Breakfast");
@@ -421,12 +401,14 @@ export function FoodApp({
     const target = next as View;
     setView(target);
     setMobileOpen(false);
-    const paths: Partial<Record<View, string>> = { 
+    
+    const paths: Partial<Record<View, string>> = {
       home: "/dashboard",
-      browse: "/explore", 
-      pantry: "/pantry", 
-      planner: "/planner", 
+      browse: "/explore",
+      pantry: "/pantry",
+      planner: "/planner",
       meals: "/meals",
+      surprise: "/surprise",
       shopping: "/shopping",
       profile: "/profile",
       settings: "/settings",
@@ -434,16 +416,30 @@ export function FoodApp({
     if (paths[target]) router.push(paths[target] as string);
   };
 
-  const contentOffset = sidebarCollapsed ? "md:pl-[72px]" : "md:pl-[280px]";
+  // ✅ EXACT FIX: 88px offset so it perfectly clears the fixed sidebar.
+  const contentOffset = "md:pl-[88px]";
+
   const TopbarComponent = Topbar as any;
   const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}-${userBudget}`;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar active={view} onNavigate={nav} dark={dark} onToggleTheme={() => setDark(!dark)} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userEmail={userEmail} userName={userName} />
+      
       <div className={`${contentOffset} transition-[padding] duration-300`}>
-        <TopbarComponent view={view} shoppingCount={shopping.length} onOpenMobileMenu={() => setMobileOpen(true)} onShowNotice={setNotice} onNavigate={nav} />
-        <main className="w-full px-5 py-8 sm:px-7 lg:px-10 lg:py-10">
+        {/* ✅ ADDED: missing props userName, dark, onToggleTheme */}
+        <TopbarComponent
+          view={view}
+          shoppingCount={shopping.length}
+          onShowNotice={setNotice}
+          onNavigate={nav}
+          userName={userName}
+          dark={dark}
+          onToggleTheme={() => setDark(!dark)}
+        />
+        
+        {/* ✅ FIXED SPACING: Tighter px scale + mobile bottom clearance */}
+        <main className="w-full px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
           {view === "home" && (
             <Dashboard
               key={dashboardKey}
@@ -473,7 +469,7 @@ export function FoodApp({
         </main>
       </div>
       {notice && (
-        <div className="fixed bottom-5 right-5 z-60 flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
+        <div className="fixed bottom-24 right-5 z-60 flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl md:bottom-5">
           <Bell className="size-5 shrink-0 text-accent" />
           <p className="text-sm font-medium">{notice}</p>
           <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-auto rounded-lg p-1 hover:bg-secondary"><X className="size-4" /></button>
