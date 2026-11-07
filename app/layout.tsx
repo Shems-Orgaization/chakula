@@ -1,15 +1,19 @@
-// app/layout.tsx
+
 import { Analytics } from "@vercel/analytics/next";
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, DM_Serif_Display } from "next/font/google";
+import { Manrope, Newsreader } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
 
-const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
-const dmSerif = DM_Serif_Display({
+const manrope = Manrope({
   subsets: ["latin"],
-  weight: "400",
-  variable: "--font-dm-serif",
+  variable: "--font-manrope",
+});
+
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-newsreader",
 });
 
 export const metadata: Metadata = {
@@ -22,8 +26,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   colorScheme: "light dark",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f5f1e9" },
-    { media: "(prefers-color-scheme: dark)", color: "#302a24" },
+    { media: "(prefers-color-scheme: light)", color: "#F8F6EE" },
+    { media: "(prefers-color-scheme: dark)", color: "#17251D" },
   ],
 };
 
@@ -33,6 +37,7 @@ const themeInitScript = `
   try {
     var stored = localStorage.getItem('food-theme');
     var theme;
+
     if (stored === '"dark"' || stored === 'dark') {
       theme = 'dark';
     } else if (stored === '"light"' || stored === 'light') {
@@ -41,11 +46,13 @@ const themeInitScript = `
       var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       theme = prefersDark ? 'dark' : 'light';
     }
+
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+
     document.documentElement.style.colorScheme = theme;
   } catch (e) {}
 })();
@@ -53,11 +60,13 @@ const themeInitScript = `
 
 export default function RootLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${dmSerif.variable}`}
+      className={`${manrope.variable} ${newsreader.variable}`}
       suppressHydrationWarning
     >
       <head>

@@ -48,7 +48,7 @@ function LoginForm() {
     setNotice("");
 
     if (captchaEnabled && !captchaToken) {
-      return setError("Please wait for the security check to finish, then try again.");
+      return setError("Please tick \"I'm not a robot\" first, then try again.");
     }
 
     setLoading(true);
@@ -57,7 +57,7 @@ function LoginForm() {
       password,
       options: { captchaToken: captchaToken ?? undefined },
     });
-    
+
     setLoading(false);
     setCaptchaToken(null);
     setCaptchaReset((n) => n + 1);
@@ -77,8 +77,8 @@ function LoginForm() {
 
   return (
     <>
-      <h1 className="font-serif text-4xl tracking-tight">Welcome back.</h1>
-      <p className="mt-3 leading-6 text-muted-foreground">
+      <h1 className="text-center font-serif text-4xl tracking-tight">Welcome back.</h1>
+      <p className="mt-3 text-center leading-6 text-muted-foreground">
         Sign in to keep your meals, pantry, planner and preferences synced.
       </p>
 

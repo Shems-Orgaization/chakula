@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
-import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
+import { RecipeImage } from "@/components/recipe-image";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { MESSAGES } from "@/lib/messages";
@@ -47,7 +47,6 @@ export function Surprise({
   favorites = [],
   defaultBudget,
 }: SurpriseProps) {
-  // Start from the budget the user set on the home screen (kept inside the slider range).
   const startBudget = Math.min(800, Math.max(80, defaultBudget ?? 300));
   const [budget, setBudget] = useState(startBudget);
   const [time, setTime] = useState(45);
@@ -328,7 +327,6 @@ export function Surprise({
                       onClick={() => open(r)}
                       className="block size-full"
                     >
-                      {/* ✅ REPLACED WITH RecipeImage */}
                       <RecipeImage
                         recipe={r}
                         images={images}
@@ -428,39 +426,53 @@ export function Surprise({
         </div>
       )}
 
-      {/* HISTORY */}
+      {/* ✅ REDESIGNED: RECENTLY SHOWN SECTION */}
       {history.length > 6 && (
-        <div className="mt-2">
-          <div className="mb-3 flex items-center justify-between">
+        <div className="mt-4">
+          <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <History className="size-4 text-muted-foreground" />
-              <p className="eyebrow">Recently shown</p>
+              <History className="size-4 text-accent" />
+              <p className="eyebrow text-foreground font-bold tracking-widest">Recently shown</p>
             </div>
             <span className="text-xs text-muted-foreground">
               Last {Math.min(history.length, 12)} picks
             </span>
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
             {history.slice(6, 12).map((s) => {
+              const r = s.recipe;
               return (
-                <div
-                  key={s.recipe.id}
-                  onClick={() => open(s.recipe)}
-                  className="min-w-[140px] cursor-pointer rounded-xl border border-border bg-card p-2 transition hover:shadow-md"
+                <button
+                  key={r.id}
+                  onClick={() => open(r)}
+                  className="group flex w-[200px] shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-border bg-card text-left transition hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg"
                 >
-                  {/* ✅ REPLACED WITH RecipeImage */}
-                  <div className="overflow-hidden rounded-lg">
+                  <div className="relative aspect-[16/10] w-full overflow-hidden bg-secondary">
                     <RecipeImage
-                      recipe={s.recipe}
+                      recipe={r}
                       images={images}
-                      className="aspect-square w-full object-cover"
-                      placeholderClassName="!aspect-square"
+                      className="size-full object-cover transition duration-500 group-hover:scale-105"
+                      placeholderClassName="aspect-auto! h-full"
                     />
+                    <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-bold text-foreground backdrop-blur">
+                      {r.mealType}
+                    </span>
                   </div>
-                  <p className="mt-1 truncate text-xs font-semibold">
-                    {s.recipe.name}
-                  </p>
-                </div>
+                  <div className="p-3">
+                    <h3 className="line-clamp-1 font-serif text-[15px] text-foreground group-hover:text-accent transition-colors">
+                      {r.name}
+                    </h3>
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Clock3 className="size-3" />
+                        {r.totalTime}m
+                      </span>
+                      <span>·</span>
+                      <span className="truncate">{formatCost(r.estimatedCost)}</span>
+                    </div>
+                  </div>
+                </button>
               );
             })}
           </div>
