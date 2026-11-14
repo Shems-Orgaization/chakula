@@ -8,8 +8,6 @@ import { createClient } from "@/lib/supabase/client";
 import { MESSAGES } from "@/lib/messages";
 import {
   AuthShell,
-  Captcha,
-  captchaEnabled,
   FormMessage,
   GoogleButton,
   PasswordField,
@@ -26,8 +24,6 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -37,9 +33,6 @@ export default function SignupPage() {
     if (name.trim().length < 2) return setError("Please enter your full name.");
     if (password.length < 8) return setError(MESSAGES.auth.passwordTooShort);
     if (password !== confirm) return setError(MESSAGES.auth.passwordMismatch);
-    if (captchaEnabled && !captchaToken) {
-      return setError("Please tick \"I'm not a robot\" first, then try again.");
-    }
 
     setLoading(true);
     const { data, error: authError } = await createClient().auth.signUp({
@@ -50,13 +43,10 @@ export default function SignupPage() {
           process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
           `${window.location.origin}/auth/callback`,
         data: { display_name: name.trim() },
-        captchaToken: captchaToken ?? undefined,
       },
     });
 
     setLoading(false);
-    setCaptchaToken(null);
-    setCaptchaReset((n) => n + 1);
 
     if (authError) {
       if (authError.message.toLowerCase().includes("already")) {
@@ -79,12 +69,21 @@ export default function SignupPage() {
       text="Create an account to keep your pantry, plans and favourites synced across every device."
     >
       <h1 className="text-center font-serif text-4xl tracking-tight">Create your account.</h1>
-      <p className="mt-3 text-center leading-6 text-muted-foreground">
+      <p className="mt-3 text-center text-sm leading-6 text-muted-foreground">
         Takes a minute. You will confirm your email, then sign in.
       </p>
 
-      <form onSubmit={submit} className="mt-8 grid gap-5">
+      <form onSubmit={submit} className="mt-6 grid gap-4">
         <GoogleButton label="Sign up with Google" onError={() => setError(MESSAGES.network.generic)} />
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
+          </div>
+        </div>
 
         <TextField
           id="name"
@@ -111,7 +110,6 @@ export default function SignupPage() {
           value={password}
           onChange={setPassword}
           autoComplete="new-password"
-          hint="At least 8 characters."
         />
         <PasswordField
           id="confirm"
@@ -120,8 +118,6 @@ export default function SignupPage() {
           onChange={setConfirm}
           autoComplete="new-password"
         />
-
-        <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />
 
         {error && <FormMessage kind="error">{error}</FormMessage>}
         {message && <FormMessage kind="success">{message}</FormMessage>}

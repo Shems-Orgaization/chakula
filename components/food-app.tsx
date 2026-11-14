@@ -12,6 +12,7 @@ import { type Recipe } from "@/lib/recipes";
 import { rankRecipes, type Match } from "@/lib/recommendations";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
+import { AssistantProvider } from "@/components/assistant-provider";
 import { imageOverrideStorageKey } from "@/lib/image-overrides";
 import { read } from "@/lib/storage";
 import { View, MealType } from "@/lib/types";
@@ -66,18 +67,18 @@ export function FoodApp({
 }) {
   const router = useRouter();
 
-  const [showAll, setShowAll] = useState(false);
   const [page, setPage] = useState(1);
   const [allRecipes, setAllRecipes] = useState<Recipe[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [planVersion, setPlanVersion] = useState(0);
 
   const {
     data: catalogResponse,
     isLoading: isCatalogLoading,
     error: catalogError,
   } = useSWR<RecipesResponse>(
-    `/api/recipes?page=${page}&limit=200${showAll ? "&includeAll=true" : ""}`,
+    `/api/recipes?page=${page}&limit=200`,
     fetcher,
     { revalidateOnFocus: false, shouldRetryOnError: false }
   );
@@ -104,16 +105,6 @@ export function FoodApp({
     setHasMore(catalogResponse.hasMore);
     setIsLoadingMore(false);
   }, [catalogResponse, page]);
-
-  const prevShowAllRef = useRef(showAll);
-  useEffect(() => {
-    if (prevShowAllRef.current === showAll) return;
-    prevShowAllRef.current = showAll;
-    setPage(1);
-    setAllRecipes([]);
-    setHasMore(true);
-    setCategory("All");
-  }, [showAll]);
 
   const catalog = allRecipes;
 
@@ -382,7 +373,7 @@ export function FoodApp({
 
   const browse = useMemo(() => {
     return catalog.filter((recipe) => {
-      const matchesCategory = category === "All" || category === "Comrade Favorites" || recipe.category === category || (category === "Breakfast" && recipe.mealType === "Breakfast");
+      const matchesCategory = category === "All" || category === "Comrade picks" || recipe.category === category || (category === "Breakfast" && recipe.mealType === "Breakfast");
       const matchesQuery = !query || recipe.name.toLowerCase().includes(query.toLowerCase());
       return matchesCategory && matchesQuery;
     });
@@ -416,65 +407,80 @@ export function FoodApp({
     if (paths[target]) router.push(paths[target] as string);
   };
 
-  // ✅ EXACT FIX: 88px offset so it perfectly clears the fixed sidebar.
   const contentOffset = "md:pl-[88px]";
 
   const TopbarComponent = Topbar as any;
-  const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}-${userBudget}`;
+  const dashboardKey = `home-${history.length}-${favorites.length}-${pantry.length}-${view}-${userBudget}-${planVersion}`;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Sidebar active={view} onNavigate={nav} dark={dark} onToggleTheme={() => setDark(!dark)} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userEmail={userEmail} userName={userName} />
-      
-      <div className={`${contentOffset} transition-[padding] duration-300`}>
-        {/* ✅ ADDED: missing props userName, dark, onToggleTheme */}
-        <TopbarComponent
-          view={view}
-          shoppingCount={shopping.length}
-          onShowNotice={setNotice}
-          onNavigate={nav}
-          userName={userName}
-          dark={dark}
-          onToggleTheme={() => setDark(!dark)}
-        />
-        
-        {/* ✅ FIXED SPACING: Tighter px scale + mobile bottom clearance */}
-        <main className="w-full px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
-          {view === "home" && (
-            <Dashboard
-              key={dashboardKey}
-              recipes={catalog}
-              onNavigate={nav}
-              onRecommend={(type?: string) => recommend(type as MealType)}
-              loved={loved}
-              open={open}
-              pantry={pantry}
-              reminders={reminders}
-              setReminders={setReminders}
-              images={viewImages}
-              userBudget={userBudget}
-              setUserBudget={setUserBudget}
-            />
-          )}
+    <AssistantProvider
+      view={view}
+      selectedId={selected?.id}
+      catalog={catalog}
+      budget={userBudget}
+      pantry={pantry}
+      favorites={favorites}
+      onOpenRecipe={open}
+      onSetFavorite={(id, on) =>
+        setFavorites((c) => (on ? (c.includes(id) ? c : [id, ...c]) : c.filter((v) => v !== id)))
+      }
+      onSetBudget={setUserBudget}
+      onShoppingAdded={(names) =>
+        setShopping((c) => [...c, ...names.filter((n) => !c.some((x) => x.toLowerCase() === n.toLowerCase()))])
+      }
+      onPlansChanged={() => setPlanVersion((v) => v + 1)}
+    >
+      <div className="min-h-screen bg-background text-foreground">
+        <Sidebar active={view} onNavigate={nav} dark={dark} onToggleTheme={() => setDark(!dark)} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userEmail={userEmail} userName={userName} />
 
-          {view === "browse" && <Explore recipes={browse} query={query} setQuery={setQuery} category={category} setCategory={setCategory} favorite={favorites} toggle={toggle} open={open} images={viewImages} showAll={showAll} setShowAll={setShowAll} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={loadMore} totalLoaded={allRecipes.length} loading={isCatalogLoading} />}
-          {view === "pantry" && <Pantry recipes={catalog} pantry={pantry} setPantry={setPantry} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
-          {view === "surprise" && <Surprise catalog={catalog} onCook={cook} open={open} images={viewImages} onSave={toggle} favorites={favorites} />}
-          {view === "detail" && selected && <Detail recipe={selected} favorite={favorites.includes(selected.id)} toggle={() => toggle(selected.id)} cook={() => cook(selected)} onBack={() => router.back()} images={viewImages} onImageChange={setImageOverrides} onGlobalImageChange={setGlobalImage} canEditImage={process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE !== "global" || isAdmin} />}
-          {view === "planner" && <Planner recipes={catalog} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
-          {view === "meals" && <Meals catalog={catalog} loved={loved} history={history} open={open} images={viewImages} />}
-          {view === "shopping" && <Shopping items={shopping} setItems={setShopping} />}
-          {view === "profile" && <ProfileComponent />}
-          {view === "settings" && <SettingsComponent userBudget={userBudget} setUserBudget={setUserBudget} dark={dark} setDark={setDark} />}
-        </main>
-      </div>
-      {notice && (
-        <div className="fixed bottom-24 right-5 z-60 flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl md:bottom-5">
-          <Bell className="size-5 shrink-0 text-accent" />
-          <p className="text-sm font-medium">{notice}</p>
-          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-auto rounded-lg p-1 hover:bg-secondary"><X className="size-4" /></button>
+        <div className={`${contentOffset} transition-[padding] duration-300`}>
+          <TopbarComponent
+            view={view}
+            shoppingCount={shopping.length}
+            onShowNotice={setNotice}
+            onNavigate={nav}
+            userName={userName}
+            dark={dark}
+            onToggleTheme={() => setDark(!dark)}
+          />
+
+          <main className="w-full px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
+            {view === "home" && (
+              <Dashboard
+                key={dashboardKey}
+                recipes={catalog}
+                onNavigate={nav}
+                onRecommend={(type?: string) => recommend(type as MealType)}
+                loved={loved}
+                open={open}
+                pantry={pantry}
+                reminders={reminders}
+                setReminders={setReminders}
+                images={viewImages}
+                userBudget={userBudget}
+                setUserBudget={setUserBudget}
+              />
+            )}
+
+            {view === "browse" && <Explore recipes={browse} query={query} setQuery={setQuery} category={category} setCategory={setCategory} favorite={favorites} toggle={toggle} open={open} pantry={pantry} userBudget={userBudget} images={viewImages} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={loadMore} totalLoaded={allRecipes.length} loading={isCatalogLoading} />}
+            {view === "pantry" && <Pantry recipes={catalog} pantry={pantry} setPantry={setPantry} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
+            {view === "surprise" && <Surprise catalog={catalog} onCook={cook} open={open} images={viewImages} onSave={toggle} favorites={favorites} defaultBudget={userBudget} />}
+            {view === "detail" && selected && <Detail key={selected.id} recipe={selected} catalog={catalog} pantry={pantry} favorite={favorites.includes(selected.id)} toggle={() => toggle(selected.id)} cook={() => cook(selected)} open={open} images={viewImages} onImageChange={setImageOverrides} onGlobalImageChange={setGlobalImage} canEditImage={process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE !== "global" || isAdmin} />}
+            {view === "planner" && <Planner recipes={catalog} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
+            {view === "meals" && <Meals catalog={catalog} loved={loved} history={history} open={open} images={viewImages} />}
+            {view === "shopping" && <Shopping items={shopping} setItems={setShopping} />}
+            {view === "profile" && <ProfileComponent />}
+            {view === "settings" && <SettingsComponent userBudget={userBudget} setUserBudget={setUserBudget} dark={dark} setDark={setDark} />}
+          </main>
         </div>
-      )}
-    </div>
+        {notice && (
+          <div className="fixed bottom-24 right-5 z-60 flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl md:bottom-5">
+            <Bell className="size-5 shrink-0 text-accent" />
+            <p className="text-sm font-medium">{notice}</p>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-auto rounded-lg p-1 hover:bg-secondary"><X className="size-4" /></button>
+          </div>
+        )}
+      </div>
+    </AssistantProvider>
   );
 }

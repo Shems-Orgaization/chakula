@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { MESSAGES, authErrorMessage, dbErrorMessage } from "@/lib/messages";
-import { Captcha, captchaEnabled } from "@/components/auth-shell";
 import {
   Save, Mail, Calendar, Heart, UtensilsCrossed, ShoppingBag,
   Loader2, Lock, Eye, EyeOff, Check, Leaf, AlertCircle
@@ -60,10 +59,6 @@ export function ProfileComponent() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
-  
-  // Captcha State
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [captchaReset, setCaptchaReset] = useState(0);
 
   useEffect(() => {
     loadProfile();
@@ -142,7 +137,6 @@ export function ProfileComponent() {
     if (newPassword.length < 8) return setPasswordError(MESSAGES.auth.passwordTooShort);
     if (newPassword !== confirmPassword) return setPasswordError(MESSAGES.auth.passwordMismatch);
     if (newPassword === currentPassword) return setPasswordError("New password must be different from the current one.");
-    if (captchaEnabled && !captchaToken) return setPasswordError("Please wait for the security check to finish, then try again.");
 
     setPasswordSaving(true);
     try {
@@ -151,12 +145,7 @@ export function ProfileComponent() {
       const { error: signInError } = await supabase.auth.signInWithPassword({ 
         email: user.email, 
         password: currentPassword,
-        options: { captchaToken: captchaToken ?? undefined }
       });
-      
-      // Token works only once
-      setCaptchaToken(null);
-      setCaptchaReset((n) => n + 1);
 
       if (signInError) { 
         setPasswordError(
@@ -263,8 +252,6 @@ export function ProfileComponent() {
             <PasswordField label="Current password" value={currentPassword} setValue={setCurrentPassword} show={showCurrent} setShow={setShowCurrent} autoComplete="current-password" />
             <PasswordField label="New password" value={newPassword} setValue={setNewPassword} show={showNew} setShow={setShowNew} autoComplete="new-password" />
             <PasswordField label="Confirm new password" value={confirmPassword} setValue={setConfirmPassword} show={showConfirm} setShow={setShowConfirm} autoComplete="new-password" />
-            
-            <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />
 
             {passwordError && <FormMessage type="error">{passwordError}</FormMessage>}
             {passwordSuccess && <FormMessage type="success">{passwordSuccess}</FormMessage>}

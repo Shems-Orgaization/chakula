@@ -9,8 +9,6 @@ import { MESSAGES } from "@/lib/messages";
 import { Loader2 } from "lucide-react";
 import {
   AuthShell,
-  Captcha,
-  captchaEnabled,
   FormMessage,
   GoogleButton,
   PasswordField,
@@ -18,7 +16,6 @@ import {
   TextField,
 } from "@/components/auth-shell";
 
-// 1. We pull the actual form into its own component
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -29,8 +26,6 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [captchaReset, setCaptchaReset] = useState(0);
 
   useEffect(() => {
     if (searchParams.get("reason") === "idle") {
@@ -46,21 +41,14 @@ function LoginForm() {
     event.preventDefault();
     setError("");
     setNotice("");
-
-    if (captchaEnabled && !captchaToken) {
-      return setError("Please tick \"I'm not a robot\" first, then try again.");
-    }
-
     setLoading(true);
+
     const { error } = await createClient().auth.signInWithPassword({
       email,
       password,
-      options: { captchaToken: captchaToken ?? undefined },
     });
 
     setLoading(false);
-    setCaptchaToken(null);
-    setCaptchaReset((n) => n + 1);
 
     if (error) {
       if (error.message.toLowerCase().includes("confirm")) {
@@ -78,14 +66,23 @@ function LoginForm() {
   return (
     <>
       <h1 className="text-center font-serif text-4xl tracking-tight">Welcome back.</h1>
-      <p className="mt-3 text-center leading-6 text-muted-foreground">
+      <p className="mt-3 text-center text-sm leading-6 text-muted-foreground">
         Sign in to keep your meals, pantry, planner and preferences synced.
       </p>
 
-      <form onSubmit={submit} className="mt-8 grid gap-5">
+      <form onSubmit={submit} className="mt-6 grid gap-4">
         {notice && <FormMessage kind="info">{notice}</FormMessage>}
 
         <GoogleButton label="Continue with Google" onError={() => setError(MESSAGES.network.generic)} />
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
+          </div>
+        </div>
 
         <TextField
           id="email"
@@ -115,8 +112,6 @@ function LoginForm() {
           </div>
         </div>
 
-        <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />
-
         {error && <FormMessage kind="error">{error}</FormMessage>}
 
         <SubmitButton loading={loading} loadingText="Signing in…">
@@ -137,7 +132,6 @@ function LoginForm() {
   );
 }
 
-// 2. The default export wraps the form in Suspense to satisfy Next.js
 export default function LoginPage() {
   return (
     <AuthShell

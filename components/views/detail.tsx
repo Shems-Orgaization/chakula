@@ -1,707 +1,461 @@
 // components/views/detail.tsx
 "use client";
 
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Heart, UtensilsCrossed, Clock3, ShoppingBag, ChefHat, X,
-  Library, Check, Plus, Loader2
+  ArrowLeft,
+  CalendarPlus,
+  ChefHat,
+  Clock3,
+  Heart,
+  Library,
+  Loader2,
+  Minus,
+  Plus,
+  ShoppingBag,
+  Sparkles,
+  UtensilsCrossed,
+  Users,
+  Wallet,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Recipe } from "@/lib/recipes";
+
+import { type Recipe } from "@/lib/recipes";
 import { RecipeImage } from "@/components/recipe-image";
-import { CollectionIcon } from "./collections";
 import { apiClient } from "@/lib/api-client";
 import { MESSAGES } from "@/lib/messages";
 import { formatCost } from "@/lib/recommendations";
+import { inPantry } from "@/lib/pantry";
+import { scaledAmount } from "@/lib/servings";
+import { addToShoppingList } from "@/lib/shopping-actions";
+import { localDateStr } from "@/lib/dates";
+import { useAssistant } from "@/components/assistant-provider";
+import { DetailCollections } from "./detail-collections";
+import { DetailCookMode } from "./detail-cook-mode";
+import { DetailImageControls, type ImageUpdater } from "./detail-image-controls";
 
 interface DetailProps {
   recipe: Recipe;
+  catalog: Recipe[];
+  pantry: string[];
   favorite: boolean;
   toggle: () => void;
   cook: () => void;
-  onBack: () => void;
+  open: (recipe: Recipe) => void;
   images?: Record<string, string>;
-  onImageChange: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
+  onImageChange: ImageUpdater;
   onGlobalImageChange?: (id: string, url: string | null) => void;
   canEditImage?: boolean;
 }
 
-interface CollectionItem {
-  id: string;
-  name: string;
-  icon: string;
-  color: string;
-  itemCount: number;
+type Slot = "breakfast" | "lunch" | "dinner";
+const SLOTS: Slot[] = ["breakfast", "lunch", "dinner"];
+const defaultSlot = (m: Recipe["mealType"]): Slot =>
+  m === "Breakfast" ? "breakfast" : m === "Lunch" ? "lunch" : "dinner";
+
+const secondaryBtn =
+  "inline-flex h-11 items-center gap-2 rounded-full border border-border bg-card px-5 text-sm font-semibold transition hover:bg-secondary";
+
+/* ---------- Add to plan (small sheet) ---------- */
+function PlanModal({ recipe, servings, onClose }: { recipe: Recipe; servings: number; onClose: () => void }) {
+  const [date, setDate] = useState(localDateStr());
+  const [slot, setSlot] = useState<Slot>(defaultSlot(recipe.mealType));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const save = async () => {
+    if (!date) return;
+    setSaving(true);
+    const res = await apiClient("/api/plans", {
+      method: "POST",
+      body: JSON.stringify({ plan_date: date, meal_type: slot, recipe_id: recipe.id, servings }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      toast.error(res.error ?? MESSAGES.network.generic);
+      return;
+    }
+    toast.success(`Added to your ${slot} plan`);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4">
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-foreground/50" onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-labelledby="plan-title" className="relative w-full max-w-md rounded-t-3xl border border-border bg-card p-5 sm:rounded-3xl">
+        <div className="flex items-center justify-between">
+          <h2 id="plan-title" className="font-serif text-2xl">Add to plan</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 hover:bg-secondary">
+            <X className="size-5" />
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{recipe.name} · {servings} servings</p>
+
+        <label className="mt-5 block text-sm font-semibold" htmlFor="plan-date">Date</label>
+        <input
+          id="plan-date"
+          type="date"
+          min={localDateStr()}
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-4 outline-none focus:border-accent"
+        />
+
+        <p className="mt-5 text-sm font-semibold">Meal</p>
+        <div className="mt-2 flex gap-2">
+          {SLOTS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={slot === s}
+              onClick={() => setSlot(s)}
+              className={`filter-pill flex-1 capitalize ${slot === s ? "filter-pill-active" : ""}`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">A meal already planned in this slot will be replaced.</p>
+
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving || !date}
+          className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-accent text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <CalendarPlus className="size-4" />}
+          Add to plan
+        </button>
+      </div>
+    </div>
+  );
 }
 
+/* ---------- Page ---------- */
 export function Detail({
   recipe,
+  catalog,
+  pantry,
   favorite,
   toggle,
   cook,
-  onBack,
+  open,
   images = {},
   onImageChange,
   onGlobalImageChange,
   canEditImage = true,
 }: DetailProps) {
   const router = useRouter();
+  const { openAssistant } = useAssistant();
   const [cookMode, setCookMode] = useState(false);
-  const [checked, setChecked] = useState<string[]>([]);
-  const [step, setStep] = useState(0);
-
-  // ✅ Global mode logic
-  const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
-  const globalMode = process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE === "global";
-  const shownImages =
-    preview && preview.id === recipe.id ? { ...images, [recipe.id]: preview.url } : images;
-  const customImage = globalMode
-    ? Boolean(recipe.image) || preview?.id === recipe.id
-    : Boolean(shownImages[recipe.id]);
-
-  const [uploading, setUploading] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [loggingCook, setLoggingCook] = useState(false);
+  const [addingShopping, setAddingShopping] = useState(false);
+  const [checked, setChecked] = useState<string[]>([]);
+  const [servings, setServings] = useState(Math.min(8, Math.max(1, recipe.servings)));
+  const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
 
-  // ---- COLLECTIONS STATE ----
-  const [showCollectionPicker, setShowCollectionPicker] = useState(false);
-  const [collections, setCollections] = useState<CollectionItem[]>([]);
-  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
-  const [loadingCollections, setLoadingCollections] = useState(false);
-  const [savingToCollections, setSavingToCollections] = useState(false);
-  const [showCreateNew, setShowCreateNew] = useState(false);
-  const [newCollectionName, setNewCollectionName] = useState("");
+  // Photo: global (admin, shared) or personal (per user) mode
+  const globalMode = process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE === "global";
+  const shownImages = preview && preview.id === recipe.id ? { ...images, [recipe.id]: preview.url } : images;
+  const hasPhoto = globalMode ? Boolean(recipe.image) || preview?.id === recipe.id : Boolean(shownImages[recipe.id]);
 
-  // ---- FETCH COLLECTIONS ----
-  useEffect(() => {
-    if (!showCollectionPicker) return;
-    (async () => {
-      setLoadingCollections(true);
-      try {
-        const [collectionsRes, currentRes] = await Promise.all([
-          apiClient("/api/collections"),
-          apiClient(`/api/collections/for-recipe?recipe_id=${recipe.id}`),
-        ]);
-        
-        if (collectionsRes.ok && currentRes.ok) {
-          setCollections(collectionsRes.data.collections ?? []);
-          setSelectedCollectionIds(new Set(currentRes.data.collectionIds ?? []));
-        } else {
-          toast.error(collectionsRes.error || currentRes.error);
-        }
-      } catch (err) {
-        toast.error(MESSAGES.network.generic);
-      } finally {
-        setLoadingCollections(false);
-      }
-    })();
-  }, [showCollectionPicker, recipe.id]);
+  const factor = servings / Math.max(1, recipe.servings);
+  const missing = recipe.ingredients.filter((i) => !checked.includes(i.name) && !inPantry(i.name, pantry));
 
-  // Keep the screen awake in cook mode (floury hands).
-  useEffect(() => {
-    if (!cookMode || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
-    let lock: WakeLockSentinel | null = null;
-    let cancelled = false;
-    const request = async () => {
-      try {
-        const sentinel = await navigator.wakeLock.request("screen");
-        if (cancelled) void sentinel.release();
-        else lock = sentinel;
-      } catch {}
-    };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void request();
-    };
-    void request();
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-      void lock?.release();
-    };
-  }, [cookMode]);
+  const perServing = formatCost({
+    min: Math.round(recipe.estimatedCost.min / Math.max(1, recipe.servings)),
+    max: Math.round(recipe.estimatedCost.max / Math.max(1, recipe.servings)),
+  });
 
-  // ---- LOG COOK TO DB + START COOK MODE ----
+  const similar = useMemo(
+    () => catalog.filter((r) => r.category === recipe.category && r.id !== recipe.id).slice(0, 4),
+    [catalog, recipe.category, recipe.id],
+  );
+
   const handleStartCooking = async () => {
     cook();
-    setStep(0);
     setCookMode(true);
     setLoggingCook(true);
-    
     const res = await apiClient("/api/meals", {
       method: "POST",
-      body: JSON.stringify({
-        recipe_id: recipe.id,
-        recipe_name: recipe.name,
-      }),
+      body: JSON.stringify({ recipe_id: recipe.id, recipe_name: recipe.name }),
     });
-
-    if (!res.ok) {
-      toast.error(res.error);
-    }
+    if (!res.ok) toast.error(res.error ?? MESSAGES.network.generic);
     setLoggingCook(false);
   };
 
-  // ---- IMAGE UPLOAD ----
-  const chooseImage = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    
-    if (file.size > 4 * 1024 * 1024) {
-      toast.error("Image must be under 4MB.");
-      return;
-    }
-    
-    setUploading(true);
-    const blobUrl = URL.createObjectURL(file);
-    setPreview({ id: recipe.id, url: blobUrl });
-    
-    const formData = new FormData();
-    formData.append("recipeId", recipe.id);
-    formData.append("file", file);
-
-    const res = await apiClient<{ url?: string; scope?: string }>("/api/recipe-images", {
-      method: "POST",
-      body: formData,
-    });
-    const payload = res.data;
-
-    if (!res.ok || !payload?.url) {
-      toast.error(res.error ?? MESSAGES.network.generic);
-      setPreview(null);
-    } else {
-      if (payload.scope === "global") {
-        onGlobalImageChange?.(recipe.id, payload.url);
-      } else {
-        onImageChange((current) => ({ ...current, [recipe.id]: payload.url! }));
-      }
-      toast.success("Image updated");
-    }
-
-    setUploading(false);
-    setPreview(null);
-    URL.revokeObjectURL(blobUrl);
+  const addMissing = async () => {
+    if (missing.length === 0) return;
+    setAddingShopping(true);
+    const res = await addToShoppingList(missing.map((i) => i.name));
+    setAddingShopping(false);
+    if (!res.ok) toast.error(res.error);
+    else if (res.added === 0) toast("Already on your shopping list");
+    else toast.success(`Added ${res.added} item${res.added === 1 ? "" : "s"} to your shopping list`);
   };
 
-  const pasteLink = async () => {
-    const url = window.prompt("Paste the image link (https://...)")?.trim();
-    if (!url) return;
-    setUploading(true);
-
-    const res = await apiClient("/api/recipe-images", {
-      method: "PATCH",
-      body: JSON.stringify({ recipeId: recipe.id, url }),
-    });
-
-    if (!res.ok) {
-      toast.error(res.error);
-    } else {
-      onGlobalImageChange?.(recipe.id, res.data.url);
-      toast.success("Image link saved");
-    }
-    setUploading(false);
-  };
-
-  const resetImage = async () => {
-    setUploading(true);
-    const res = await apiClient(`/api/recipe-images?recipeId=${recipe.id}`, { method: "DELETE" });
-    
-    if (res.ok && res.data.scope === "global") {
-      onGlobalImageChange?.(recipe.id, null);
-    } else if (!res.ok) {
-      toast.error(res.error);
-    }
-
-    onImageChange((current) => {
-      const next = { ...current };
-      delete next[recipe.id];
-      return next;
-    });
-    setUploading(false);
-  };
-
-  // ---- COLLECTIONS ----
-  const toggleCollectionSelect = (id: string) => {
-    const next = new Set(selectedCollectionIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedCollectionIds(next);
-  };
-
-  const saveToCollections = async () => {
-    setSavingToCollections(true);
-    try {
-      const currentRes = await apiClient(`/api/collections/for-recipe?recipe_id=${recipe.id}`);
-      if (!currentRes.ok) throw new Error(currentRes.error);
-
-      const currentIds: string[] = currentRes.data.collectionIds ?? [];
-      const removedIds = currentIds.filter((id) => !selectedCollectionIds.has(id));
-      
-      // Remove items
-      for (const collectionId of removedIds) {
-        const delRes = await apiClient(`/api/collections/items?collection_id=${collectionId}&recipe_id=${recipe.id}`, { method: "DELETE" });
-        if (!delRes.ok) throw new Error(delRes.error);
-      }
-
-      // Add items
-      if (selectedCollectionIds.size > 0) {
-        const addRes = await apiClient("/api/collections/items", {
-          method: "POST",
-          body: JSON.stringify({
-            recipe_id: recipe.id,
-            collection_ids: Array.from(selectedCollectionIds),
-          }),
-        });
-        if (!addRes.ok) throw new Error(addRes.error);
-      }
-
-      setShowCollectionPicker(false);
-      toast.success("Saved to collections");
-    } catch (err: any) {
-      toast.error(err.message || MESSAGES.network.generic);
-    } finally {
-      setSavingToCollections(false);
-    }
-  };
-
-  const createAndAddNewCollection = async () => {
-    if (!newCollectionName.trim()) return;
-    setSavingToCollections(true);
-    
-    const createRes = await apiClient("/api/collections", {
-      method: "POST",
-      body: JSON.stringify({
-        name: newCollectionName.trim(),
-        icon: "library",
-        color: "orange",
-      }),
-    });
-
-    if (!createRes.ok) {
-      toast.error(createRes.error);
-      setSavingToCollections(false);
-      return;
-    }
-
-    const newId = createRes.data.collection?.id;
-    if (newId) {
-      const addRes = await apiClient("/api/collections/items", {
-        method: "POST",
-        body: JSON.stringify({
-          recipe_id: recipe.id,
-          collection_ids: [newId],
-        }),
-      });
-      
-      if (!addRes.ok) {
-        toast.error(addRes.error);
-        setSavingToCollections(false);
-        return;
-      }
-    }
-
-    setShowCollectionPicker(false);
-    setShowCreateNew(false);
-    setNewCollectionName("");
-    toast.success("Collection created & saved");
-    setSavingToCollections(false);
-  };
+  const stats = [
+    { icon: Clock3, label: "Time", value: `${recipe.totalTime} min` },
+    { icon: Users, label: "Servings", value: String(recipe.servings) },
+    { icon: ChefHat, label: "Difficulty", value: recipe.difficulty },
+    { icon: Wallet, label: "Per serving", value: perServing },
+  ];
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6 pb-16 md:pb-0">
       <button
-        className="back-button flex items-center gap-2 text-muted-foreground hover:text-foreground transition"
+        type="button"
         onClick={() => router.back()}
+        className="inline-flex items-center gap-2 self-start text-sm font-semibold text-muted-foreground transition hover:text-foreground"
       >
-        ← Back to explore
+        <ArrowLeft className="size-4" />
+        Back
       </button>
 
-      <article className="overflow-hidden rounded-[2rem] border border-border bg-card">
-        {/* Image / Placeholder */}
-        <div className="relative h-[360px] sm:h-[500px]">
+      {/* HERO */}
+      <section className="grid gap-6 lg:grid-cols-2 lg:gap-10">
+        <div className="relative aspect-[4/3] overflow-hidden rounded-3xl border border-border bg-secondary">
           <RecipeImage
             recipe={recipe}
             images={shownImages}
             showName
             className="size-full object-cover"
-            placeholderClassName="h-full !aspect-auto"
+            placeholderClassName="aspect-auto! h-full"
           />
-
-          {/* ✅ ADMIN-ONLY BUTTONS */}
           {canEditImage && (
-            <div className="absolute right-5 top-5 z-10 flex gap-2">
-              <label className="secondary-button cursor-pointer rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition">
-                {uploading ? "Uploading…" : customImage ? "Change photo" : "Add photo"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={chooseImage}
-                  disabled={uploading}
-                />
-              </label>
-              {globalMode && (
-                <button
-                  className="secondary-button rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition"
-                  onClick={pasteLink}
-                  disabled={uploading}
-                >
-                  Paste link
-                </button>
-              )}
-              {customImage && (
-                <button
-                  className="secondary-button rounded-xl bg-background/90 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-background/80 transition"
-                  onClick={resetImage}
-                  disabled={uploading}
-                >
-                  Reset
-                </button>
-              )}
-            </div>
+            <DetailImageControls
+              recipeId={recipe.id}
+              hasPhoto={hasPhoto}
+              globalMode={globalMode}
+              onPreview={(url) => setPreview(url ? { id: recipe.id, url } : null)}
+              onImageChange={onImageChange}
+              onGlobalImageChange={onGlobalImageChange}
+            />
           )}
-
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-foreground/80 to-transparent p-6 text-background sm:p-10">
-            <div className="flex flex-wrap gap-2">
-              {recipe.tags.slice(0, 3).map((tag) => (
-                <span
-                  className="tag rounded-full bg-background/20 px-3 py-1 text-xs font-medium"
-                  key={tag}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-            <h1 className="mt-3 font-serif text-5xl sm:text-7xl">
-              {recipe.name}
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm text-background/80 sm:text-lg">
-              {recipe.description}
-            </p>
-          </div>
         </div>
 
-        {/* Content */}
-        <div className="grid gap-8 p-6 sm:p-10 lg:grid-cols-[.85fr_1.15fr]">
-          <div className="flex flex-col gap-6">
-            <div className="meta-grid flex flex-wrap gap-4 text-sm">
-              <span className="flex items-center gap-1">
-                <Clock3 className="size-4" />
-                {recipe.totalTime} min
+        <div className="flex flex-col justify-center">
+          <p className="eyebrow">
+            {recipe.category} · {recipe.mealType}
+          </p>
+          <h1 className="mt-3 font-serif text-4xl leading-tight sm:text-5xl">{recipe.name}</h1>
+          <p className="mt-4 leading-7 text-muted-foreground">{recipe.description}</p>
+
+          {recipe.tags.length > 0 && (
+            <ul className="mt-4 flex flex-wrap gap-2">
+              {recipe.tags.map((tag) => (
+                <li key={tag} className="tag">{tag}</li>
+              ))}
+            </ul>
+          )}
+
+          <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {stats.map(({ icon: Icon, label, value }) => (
+              <div key={label} className="rounded-2xl border border-border bg-card p-3">
+                <Icon className="size-4 text-accent" />
+                <dd className="mt-2 text-sm font-bold leading-tight">{value}</dd>
+                <dt className="mt-0.5 text-[11px] font-semibold text-muted-foreground">{label}</dt>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-6 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleStartCooking()}
+              disabled={loggingCook}
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-accent px-6 text-sm font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
+            >
+              {loggingCook ? <Loader2 className="size-4 animate-spin" /> : <UtensilsCrossed className="size-4" />}
+              Let&apos;s cook
+            </button>
+            <button type="button" onClick={toggle} aria-pressed={favorite} className={secondaryBtn}>
+              <Heart className={`size-4 ${favorite ? "fill-current text-warm" : ""}`} />
+              {favorite ? "Saved" : "Save"}
+            </button>
+            <button type="button" onClick={() => setCollectionsOpen(true)} className={secondaryBtn}>
+              <Library className="size-4" />
+              Collections
+            </button>
+            <button type="button" onClick={() => setPlanOpen(true)} className={secondaryBtn}>
+              <CalendarPlus className="size-4" />
+              Add to plan
+            </button>
+            <button type="button" onClick={() => openAssistant({ page: "detail" })} className={secondaryBtn}>
+              <Sparkles className="size-4" />
+              Ask Chakula
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* BODY */}
+      <section className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr] xl:grid-cols-[minmax(0,380px)_1fr_300px]">
+        {/* Ingredients */}
+        <div className="h-fit rounded-3xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-serif text-2xl">Ingredients</h2>
+            <div className="flex items-center gap-1 rounded-full border border-border p-1" role="group" aria-label="Servings">
+              <button
+                type="button"
+                aria-label="Fewer servings"
+                disabled={servings <= 1}
+                onClick={() => setServings((s) => Math.max(1, s - 1))}
+                className="flex size-8 items-center justify-center rounded-full hover:bg-secondary disabled:opacity-40"
+              >
+                <Minus className="size-4" />
+              </button>
+              <span className="min-w-[4.5rem] text-center text-sm font-semibold" aria-live="polite">
+                {servings} {servings === 1 ? "serving" : "servings"}
               </span>
-              <span className="flex items-center gap-1">
-                <ShoppingBag className="size-4" />
-                {formatCost(recipe.estimatedCost)}
-              </span>
-              <span className="flex items-center gap-1">
-                <ChefHat className="size-4" />
-                {recipe.difficulty}
-              </span>
+              <button
+                type="button"
+                aria-label="More servings"
+                disabled={servings >= 8}
+                onClick={() => setServings((s) => Math.min(8, s + 1))}
+                className="flex size-8 items-center justify-center rounded-full hover:bg-secondary disabled:opacity-40"
+              >
+                <Plus className="size-4" />
+              </button>
             </div>
-            <p className="-mt-3 text-xs text-muted-foreground">
+          </div>
+
+          <ul className="mt-4 divide-y divide-border">
+            {recipe.ingredients.map((i, idx) => {
+              const done = checked.includes(i.name);
+              const have = inPantry(i.name, pantry);
+              return (
+                <li key={`${i.name}-${idx}`}>
+                  <label className="flex cursor-pointer items-center gap-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={done}
+                      onChange={() =>
+                        setChecked((c) => (c.includes(i.name) ? c.filter((x) => x !== i.name) : [...c, i.name]))
+                      }
+                      className="size-4 accent-accent"
+                    />
+                    <span className={`flex-1 text-sm ${done ? "line-through opacity-50" : ""}`}>
+                      {i.name}
+                      {have && (
+                        <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">
+                          In pantry
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-sm text-muted-foreground">{scaledAmount(i, factor)}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+
+          <button
+            type="button"
+            onClick={() => void addMissing()}
+            disabled={missing.length === 0 || addingShopping}
+            className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-secondary text-sm font-semibold text-secondary-foreground transition hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+          >
+            {addingShopping ? <Loader2 className="size-4 animate-spin" /> : <ShoppingBag className="size-4" />}
+            {missing.length === 0 ? "Nothing missing" : `Add missing to shopping (${missing.length})`}
+          </button>
+        </div>
+
+        {/* Steps */}
+        <div className="rounded-3xl border border-border bg-card p-5 sm:p-8">
+          <h2 className="font-serif text-2xl">Instructions</h2>
+          <ol className="mt-5 flex flex-col gap-6">
+            {recipe.instructions.map((s, i) => (
+              <li key={`${i}-${s}`} className="flex gap-4">
+                <span className="w-10 shrink-0 font-serif text-5xl leading-none text-accent/50">{i + 1}</span>
+                <div className="pt-1">
+                  <p className="leading-7">{s}</p>
+                  <button
+                    type="button"
+                    onClick={() => openAssistant({ page: "detail", prompt: `Explain this step simply: ${s}` })}
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+                  >
+                    <Sparkles className="size-3" />
+                    Explain this step
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        {/* Right rail (xl) / stacked below on smaller screens */}
+        <aside className="flex flex-col gap-6 lg:col-span-2 xl:col-span-1">
+          <div className="rounded-3xl border border-border bg-card p-5">
+            <h2 className="font-serif text-2xl">Approximate cost</h2>
+            <p className="mt-3 inline-block rounded-full bg-highlight px-3 py-1 text-sm font-bold text-highlight-foreground">
+              {formatCost(recipe.estimatedCost)}
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              for {recipe.servings} servings · {perServing} per serving
+            </p>
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
               Approximate cost of ingredients only. Gas or charcoal not included.
             </p>
+          </div>
 
-            <div>
-              <h2 className="detail-heading mb-3 font-serif text-2xl">
-                Ingredients
-              </h2>
-              <ul className="ingredient-list space-y-2">
-                {recipe.ingredients.map((i) => (
-                  <li key={i.name} className="flex items-center justify-between">
-                    <label
-                      className={`flex items-center gap-2 ${
-                        checked.includes(i.name)
-                          ? "line-through opacity-50"
-                          : ""
-                      }`}
+          {similar.length > 0 && (
+            <div className="rounded-3xl border border-border bg-card p-5">
+              <h2 className="font-serif text-2xl">Similar recipes</h2>
+              <ul className="mt-3 flex flex-col gap-1">
+                {similar.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => open(r)}
+                      className="flex w-full items-center gap-3 rounded-2xl p-2 text-left transition hover:bg-secondary"
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked.includes(i.name)}
-                        onChange={() =>
-                          setChecked(
-                            checked.includes(i.name)
-                              ? checked.filter((x) => x !== i.name)
-                              : [...checked, i.name]
-                          )
-                        }
-                        className="rounded border-border text-accent focus:ring-2 focus:ring-accent/20"
-                      />{" "}
-                      {i.name}
-                    </label>
-                    <span className="text-sm text-muted-foreground">
-                      {i.amount}
-                    </span>
+                      <span className="size-14 shrink-0 overflow-hidden rounded-xl bg-secondary">
+                        <RecipeImage
+                          recipe={r}
+                          images={images}
+                          className="size-full object-cover"
+                          placeholderClassName="aspect-auto! h-full"
+                        />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-serif text-lg">{r.name}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {r.totalTime} min · {formatCost(r.estimatedCost)}
+                        </span>
+                      </span>
+                    </button>
                   </li>
                 ))}
               </ul>
             </div>
-          </div>
+          )}
+        </aside>
+      </section>
 
-          <div>
-            <div className="mb-6 flex flex-wrap justify-end gap-2">
-              <button
-                className="secondary-button flex items-center gap-2 rounded-xl border border-border px-4 py-2 font-semibold hover:bg-secondary transition"
-                onClick={() => setShowCollectionPicker(true)}
-              >
-                <Library className="size-4" />
-                Collections
-              </button>
+      {/* Mobile: floating cook button above the bottom nav */}
+      <button
+        type="button"
+        onClick={() => void handleStartCooking()}
+        disabled={loggingCook}
+        className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent text-sm font-semibold text-accent-foreground shadow-lg md:hidden"
+      >
+        <UtensilsCrossed className="size-4" />
+        Let&apos;s cook
+      </button>
 
-              <button
-                className="secondary-button flex items-center gap-2 rounded-xl border border-border px-4 py-2 font-semibold hover:bg-secondary transition"
-                onClick={toggle}
-              >
-                <Heart className={favorite ? "fill-current text-red-500" : ""} />{" "}
-                {favorite ? "Saved" : "Save"}
-              </button>
-
-              <button
-                className="primary-button flex items-center gap-2 rounded-xl bg-accent px-4 py-2 font-semibold text-accent-foreground hover:opacity-90 transition disabled:opacity-60"
-                onClick={handleStartCooking}
-                disabled={loggingCook}
-              >
-                {loggingCook ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <UtensilsCrossed className="size-4" />
-                    Let&apos;s cook
-                  </>
-                )}
-              </button>
-            </div>
-
-            <h2 className="detail-heading mb-3 font-serif text-2xl">
-              Instructions
-            </h2>
-            <ol className="steps-list space-y-4">
-              {recipe.instructions.map((s, i) => (
-                <li key={`${i}-${s}`} className="flex gap-3">
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-sm font-bold text-accent">
-                    {i + 1}
-                  </span>
-                  <p className="text-sm leading-6">{s}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-      </article>
-
-      {/* COLLECTION PICKER MODAL */}
-      {showCollectionPicker && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-          <div className="w-full max-w-md rounded-t-3xl border border-border bg-card sm:rounded-3xl">
-            <div className="flex items-center justify-between border-b border-border p-5">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Add to
-                </p>
-                <h3 className="mt-1 font-serif text-2xl">Collections</h3>
-              </div>
-              <button
-                onClick={() => {
-                  setShowCollectionPicker(false);
-                  setShowCreateNew(false);
-                }}
-                className="rounded-lg p-2 transition hover:bg-secondary"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-
-            {showCreateNew ? (
-              <div className="p-5">
-                <p className="mb-3 text-sm text-muted-foreground">
-                  Create a new collection and add this recipe.
-                </p>
-                <input
-                  autoFocus
-                  value={newCollectionName}
-                  onChange={(e) => setNewCollectionName(e.target.value)}
-                  placeholder="e.g. Weekend BBQ"
-                  className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none transition focus:border-accent"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") createAndAddNewCollection();
-                  }}
-                />
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setShowCreateNew(false)}
-                    className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={createAndAddNewCollection}
-                    disabled={!newCollectionName.trim() || savingToCollections}
-                    className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
-                  >
-                    {savingToCollections ? (
-                      <Loader2 className="mx-auto size-4 animate-spin" />
-                    ) : (
-                      "Create & Add"
-                    )}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="max-h-[55vh] overflow-y-auto p-4">
-                  {loadingCollections ? (
-                    <div className="flex justify-center py-10">
-                      <Loader2 className="size-6 animate-spin text-accent" />
-                    </div>
-                  ) : collections.length === 0 ? (
-                    <div className="py-6 text-center">
-                      <Library className="mx-auto size-10 text-muted-foreground/40" />
-                      <p className="mt-3 text-sm text-muted-foreground">
-                        No collections yet.
-                      </p>
-                      <button
-                        onClick={() => setShowCreateNew(true)}
-                        className="mt-3 text-sm font-semibold text-accent hover:underline"
-                      >
-                        + Create your first collection
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      {collections.map((c) => {
-                        const selected = selectedCollectionIds.has(c.id);
-                        return (
-                          <button
-                            key={c.id}
-                            onClick={() => toggleCollectionSelect(c.id)}
-                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                              selected
-                                ? "bg-accent/10 ring-1 ring-accent/30"
-                                : "hover:bg-secondary"
-                            }`}
-                          >
-                            <div
-                              className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
-                                selected
-                                  ? "bg-accent/15 text-accent"
-                                  : "bg-secondary text-muted-foreground"
-                              }`}
-                            >
-                              <CollectionIcon icon={c.icon} className="size-5" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="truncate font-medium">{c.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {c.itemCount}{" "}
-                                {c.itemCount === 1 ? "recipe" : "recipes"}
-                              </p>
-                            </div>
-                            {selected && (
-                              <Check className="size-5 shrink-0 text-accent" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="border-t border-border p-4">
-                  <button
-                    onClick={() => setShowCreateNew(true)}
-                    className="mb-3 flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2.5 text-sm font-semibold text-muted-foreground transition hover:border-accent hover:text-accent"
-                  >
-                    <Plus className="size-4" />
-                    Create new collection
-                  </button>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowCollectionPicker(false)}
-                      className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={saveToCollections}
-                      disabled={savingToCollections}
-                      className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
-                    >
-                      {savingToCollections ? (
-                        <Loader2 className="mx-auto size-4 animate-spin" />
-                      ) : (
-                        `Save${
-                          selectedCollectionIds.size > 0
-                            ? ` (${selectedCollectionIds.size})`
-                            : ""
-                        }`
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* COOK MODE */}
-      {cookMode && (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-background">
-          <header className="flex items-center justify-between border-b border-border p-5">
-            <div>
-              <p className="eyebrow text-xs uppercase tracking-wider text-muted-foreground">
-                Cook mode
-              </p>
-              <h2 className="font-serif text-2xl">{recipe.name}</h2>
-            </div>
-            <button
-              className="icon-button rounded-lg p-2 hover:bg-secondary transition"
-              onClick={() => setCookMode(false)}
-              aria-label="Close cook mode"
-            >
-              <X className="size-5" />
-            </button>
-          </header>
-
-          <div className="flex flex-1 items-center justify-center p-8 text-center">
-            <div className="max-w-2xl">
-              <span className="font-serif text-8xl text-accent/20">
-                {String(step + 1).padStart(2, "0")}
-              </span>
-              <h1 className="mt-4 font-serif text-4xl sm:text-5xl leading-tight">
-                {recipe.instructions[step]}
-              </h1>
-              <p className="mt-5 text-muted-foreground">
-                Step {step + 1} of {recipe.instructions.length}
-              </p>
-            </div>
-          </div>
-
-          <footer className="flex items-center justify-between border-t border-border p-5">
-            <button
-              className="secondary-button rounded-xl border border-border px-6 py-2.5 font-semibold hover:bg-secondary transition disabled:opacity-50"
-              disabled={!step}
-              onClick={() => setStep(step - 1)}
-            >
-              Previous
-            </button>
-            <button
-              className="primary-button rounded-xl bg-accent px-6 py-2.5 font-semibold text-accent-foreground hover:opacity-90 transition"
-              onClick={() =>
-                step === recipe.instructions.length - 1
-                  ? setCookMode(false)
-                  : setStep(step + 1)
-              }
-            >
-              {step === recipe.instructions.length - 1 ? "Done" : "Next"}
-            </button>
-          </footer>
-        </div>
-      )}
+      {collectionsOpen && <DetailCollections recipeId={recipe.id} onClose={() => setCollectionsOpen(false)} />}
+      {planOpen && <PlanModal recipe={recipe} servings={servings} onClose={() => setPlanOpen(false)} />}
+      {cookMode && <DetailCookMode recipe={recipe} onClose={() => setCookMode(false)} />}
     </div>
   );
 }
