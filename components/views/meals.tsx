@@ -79,6 +79,27 @@ const timeAgo = (dateStr: string): string => {
   return `${Math.floor(months / 12)}y ago`;
 };
 
+const toRecipe = (r: UserRecipe): Recipe => ({
+  id: r.id,
+  name: r.name,
+  description: r.description,
+  category: r.category,
+  mealType: (["Breakfast", "Lunch", "Dinner", "Snack"].includes(r.meal_type) ? r.meal_type : "Dinner") as Recipe["mealType"],
+  ingredients: r.ingredients,
+  instructions: r.instructions,
+  prepTime: Math.max(5, r.total_time_minutes - 10),
+  cookTime: r.total_time_minutes,
+  totalTime: r.total_time_minutes,
+  servings: r.servings,
+  difficulty: r.difficulty === "medium" ? "Medium" : "Easy",
+  estimatedCost: { min: r.cost_min_kes, max: r.cost_max_kes },
+  equipment: ["Sufuria", "Wooden spoon"],
+  image: r.image_url,
+  tags: r.tags ?? [],
+  dietaryInfo: r.dietary_tags ?? [],
+  popularity: 0,
+});
+
 export function Meals({ catalog, loved, history, open, images = {} }: MealsProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("favorites");
@@ -602,13 +623,20 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                 </div>
                 <div className="p-4">
                   <p className="eyebrow text-accent">{r.category} · {r.meal_type}</p>
-                  <h3 className="mt-1 font-serif text-xl">{r.name}</h3>
+                  <h3 className="mt-1 font-serif text-xl">
+                    <button type="button" onClick={() => open(toRecipe(r))} className="text-left hover:text-accent">
+                      {r.name}
+                    </button>
+                  </h3>
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{r.description}</p>
                   <div className="mt-3 flex gap-3 text-xs font-semibold text-muted-foreground">
                     <span>{r.total_time_minutes} min</span>
                     <span>≈ KES {r.cost_min_kes}–{r.cost_max_kes}</span>
                     <span>{r.difficulty}</span>
                   </div>
+                  <button type="button" onClick={() => open(toRecipe(r))} className="mt-3 text-sm font-semibold text-accent hover:underline">
+                    Open recipe
+                  </button>
                 </div>
               </div>
             ))}

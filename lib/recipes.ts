@@ -1,7 +1,7 @@
 // lib/recipes.ts
 
 export type CostRange = { min: number; max: number };
-export type Ingredient = { name: string; amount: string; essential?: boolean };
+export type Ingredient = { name: string; amount: string; qty?: number | null; unit?: string };
 
 export type Recipe = {
   id: string;

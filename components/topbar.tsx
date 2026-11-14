@@ -3,10 +3,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, LogOut, Moon, Search, Settings, ShoppingBag, Sun, User } from "lucide-react";
+import { Bell, LogOut, Moon, Search, Settings, ShoppingBag, Sparkles, Sun, User } from "lucide-react";
 import { View } from "@/lib/types";
 import { ReminderPopover } from "@/components/reminder-popover";
 import { createClient } from "@/lib/supabase/client";
+import { useAssistant } from "@/components/assistant-provider";
 
 type TopbarProps = {
   view: View;
@@ -41,6 +42,7 @@ export function Topbar({
   onToggleTheme,
 }: TopbarProps) {
   const router = useRouter();
+  const { openAssistant } = useAssistant();
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -100,6 +102,16 @@ export function Topbar({
         </button>
 
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
+          <button
+            type="button"
+            onClick={() => openAssistant()}
+            aria-label="Ask Chakula"
+            className="flex h-10 items-center gap-2 rounded-xl bg-accent px-3 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
+          >
+            <Sparkles className="size-[18px]" />
+            <span className="hidden sm:inline">Ask Chakula</span>
+          </button>
+
           <button
             type="button"
             onClick={() => onNavigate("browse")}
