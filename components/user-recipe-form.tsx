@@ -1,9 +1,10 @@
 // components/user-recipe-form.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { X, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { useState } from "react";
+import { X, Plus, Trash2, Loader2, AlertCircle, Sparkles } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
+import { useEscape } from "@/lib/use-escape";
 
 interface Ingredient {
   name: string;
@@ -32,13 +33,14 @@ interface UserRecipeFormProps {
   recipe: UserRecipe | null;
   onClose: () => void;
   onSaved: () => void;
+  onDraftWithAi?: (idea: string) => void;
 }
 
 const CATEGORIES = ["Breakfast", "Lunch", "Dinner", "Snack", "Traditional", "Street Food", "Vegetarian", "High-Protein"];
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"];
 const DIFFICULTIES = ["easy", "medium"];
 
-export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps) {
+export function UserRecipeForm({ recipe, onClose, onSaved, onDraftWithAi }: UserRecipeFormProps) {
   const [name, setName] = useState(recipe?.name ?? "");
   const [description, setDescription] = useState(recipe?.description ?? "");
   const [category, setCategory] = useState(recipe?.category ?? "Dinner");
@@ -58,14 +60,7 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
   const [error, setError] = useState<string | null>(null);
 
   const isEdit = Boolean(recipe?.id);
-
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onEsc);
-    return () => document.removeEventListener("keydown", onEsc);
-  }, [onClose]);
+  useEscape(onClose);
 
   const addIngredient = () => setIngredients([...ingredients, { name: "", amount: "" }]);
   const removeIngredient = (i: number) => setIngredients(ingredients.filter((_, idx) => idx !== i));
@@ -92,6 +87,15 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
     const cleanInstructions = instructions.filter((s) => s.trim());
     if (cleanInstructions.length === 0) return setError("Add at least one cooking step.");
 
+    const time = Math.round(Number(totalTime));
+    const serv = Math.round(Number(servings));
+    const min = Number(costMin);
+    const max = Number(costMax);
+
+    if (!Number.isFinite(time) || time < 1 || time > 1440) return setError("Total time must be between 1 and 1440 minutes.");
+    if (!Number.isFinite(serv) || serv < 1 || serv > 100) return setError("Servings must be between 1 and 100.");
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min) return setError("Cost max must be the same as or higher than cost min.");
+
     setSaving(true);
 
     const payload = {
@@ -100,10 +104,10 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
       category,
       meal_type: mealType,
       difficulty,
-      total_time_minutes: Number(totalTime) || 30,
-      servings: Number(servings) || 2,
-      cost_min_kes: Number(costMin) || 0,
-      cost_max_kes: Number(costMax) || 0,
+      total_time_minutes: time,
+      servings: serv,
+      cost_min_kes: min,
+      cost_max_kes: max,
       ingredients: cleanIngredients,
       instructions: cleanInstructions,
       tags: [],
@@ -127,24 +131,29 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="flex h-[95vh] w-full max-w-2xl flex-col rounded-t-3xl border border-border bg-card sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+      <div
+        className="flex h-[95vh] w-full max-w-2xl flex-col rounded-t-3xl border border-border bg-card sm:h-auto sm:max-h-[90vh] sm:rounded-3xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recipe-form-title"
+      >
         <div className="flex items-center justify-between border-b border-border p-5">
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               {isEdit ? "Edit" : "Create"}
             </p>
-            <h2 className="mt-1 font-serif text-2xl">
+            <h2 id="recipe-form-title" className="mt-1 font-serif text-2xl">
               {isEdit ? "Edit recipe" : "New recipe"}
             </h2>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 transition hover:bg-secondary">
+          <button onClick={onClose} className="rounded-lg p-2 transition hover:bg-secondary" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
           {error && (
-            <div role="alert" className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+            <div role="alert" className="mb-4 flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="size-4 shrink-0" />
               {error}
             </div>
@@ -161,6 +170,16 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
                 className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-2.5 outline-none focus:border-accent"
               />
             </label>
+            {!isEdit && onDraftWithAi && (
+              <button
+                type="button"
+                disabled={!name.trim()}
+                onClick={() => onDraftWithAi(name.trim())}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline disabled:opacity-50"
+              >
+                <Sparkles className="size-3.5" /> Let Chakula write this recipe
+              </button>
+            )}
 
             <label className="block">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</span>
@@ -230,7 +249,7 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
                   <input value={ing.name} onChange={(e) => updateIngredient(i, "name", e.target.value)} placeholder="Ingredient" className="flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
                   <input value={ing.amount} onChange={(e) => updateIngredient(i, "amount", e.target.value)} placeholder="Amount" className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
                   {ingredients.length > 1 && (
-                    <button onClick={() => removeIngredient(i)} className="rounded-xl border border-border p-2 text-muted-foreground transition hover:border-red-300 hover:text-red-500">
+                    <button onClick={() => removeIngredient(i)} className="rounded-xl border border-border p-2 text-muted-foreground transition hover:border-destructive/40 hover:text-destructive" aria-label="Remove ingredient">
                       <Trash2 className="size-3.5" />
                     </button>
                   )}
@@ -249,10 +268,18 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
             <div className="space-y-2">
               {instructions.map((step, i) => (
                 <div key={i} className="flex gap-2">
-                  <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-bold text-accent">{i + 1}</div>
-                  <textarea value={step} onChange={(e) => updateStep(i, e.target.value)} placeholder={`Step ${i + 1}...`} rows={2} className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent" />
+                  <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-bold text-accent">
+                    {i + 1}
+                  </div>
+                  <textarea
+                    value={step}
+                    onChange={(e) => updateStep(i, e.target.value)}
+                    placeholder={`Step ${i + 1}`}
+                    rows={1}
+                    className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                  />
                   {instructions.length > 1 && (
-                    <button onClick={() => removeStep(i)} className="self-start rounded-xl border border-border p-2 text-muted-foreground transition hover:border-red-300 hover:text-red-500">
+                    <button onClick={() => removeStep(i)} className="h-fit rounded-xl border border-border p-2 text-muted-foreground transition hover:border-destructive/40 hover:text-destructive" aria-label="Remove step">
                       <Trash2 className="size-3.5" />
                     </button>
                   )}
@@ -269,9 +296,10 @@ export function UserRecipeForm({ recipe, onClose, onSaved }: UserRecipeFormProps
           <button
             onClick={handleSubmit}
             disabled={saving}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
           >
-            {saving ? <><Loader2 className="size-4 animate-spin" /> Saving...</> : isEdit ? "Save Changes" : "Create Recipe"}
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {isEdit ? "Save Changes" : "Create Recipe"}
           </button>
         </div>
       </div>

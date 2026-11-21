@@ -18,12 +18,13 @@ export type Recipe = {
   difficulty: "Easy" | "Medium";
   estimatedCost: CostRange;
   equipment: string[];
-  image: string | null; // ✅ Now allows null
+  image: string | null;
   tags: string[];
   dietaryInfo: string[];
   popularity: number;
   slug?: string;
   isComradeFriendly?: boolean;
+  userRecipe?: boolean;
 };
 
 const photo = (id: string) =>
@@ -53,7 +54,7 @@ const base = (
   difficulty: "Easy",
   estimatedCost: { min: 80, max: 150 },
   equipment: ["Sufuria", "Wooden spoon"],
-  image: null, // ✅ Default to null (placeholder shown)
+  image: null,
   tags: ["Comrade-friendly"],
   dietaryInfo: [],
   popularity: 80,

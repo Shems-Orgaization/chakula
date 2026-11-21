@@ -2,270 +2,292 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { MESSAGES, authErrorMessage, dbErrorMessage } from "@/lib/messages";
-import { REMINDERS_ENABLED } from "@/lib/features";
-import {
-  Moon, Sun, Bell, Coffee, Sunset, UtensilsCrossed, Apple, Fish, Leaf, AlertCircle, Check, Loader2, Save, X, Wallet
-} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
+import { Loader2, Plus, X, Check, Moon, Sun, Wallet, AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-type Option = { id: string; label: string; icon: any };
-type MealPeriod = { id: "morning" | "lunch" | "evening"; label: string; icon: any; description: string };
-
-const dietaryOptions: Option[] = [
-  { id: "vegetarian", label: "Vegetarian", icon: Leaf },
-  { id: "vegan", label: "Vegan", icon: Leaf },
-  { id: "pescatarian", label: "Pescatarian", icon: Fish },
-  { id: "gluten-free", label: "Gluten free", icon: AlertCircle },
-  { id: "dairy-free", label: "Dairy free", icon: AlertCircle },
-  { id: "keto", label: "Keto", icon: Apple },
-  { id: "high-protein", label: "High protein", icon: Fish },
+const DIETARY_OPTIONS = [
+  "Vegetarian", "Vegan", "Pescatarian", "Halal", "Keto", "Gluten-Free", 
+  "Dairy-Free", "Nut-Free", "Low-Carb", "High-Protein", "Diabetic-Friendly", 
+  "Low-Sodium"
 ];
 
-const allergyOptions: Option[] = [
-  "Peanuts", "Tree nuts", "Milk", "Eggs", "Soy", "Wheat", "Shellfish", "Fish",
-].map((label) => ({ id: label, label, icon: AlertCircle }));
-
-const mealTypeOptions: Option[] = [
-  "Breakfast", "Lunch", "Dinner", "Snacks", "Quick meals", "Traditional", "Street food",
-].map((label) => ({ id: label, label, icon: UtensilsCrossed }));
-
-const mealPeriods: MealPeriod[] = [
-  { id: "morning", label: "Morning", icon: Coffee, description: "Before 11am" },
-  { id: "lunch", label: "Lunch", icon: Sun, description: "11am – 4pm" },
-  { id: "evening", label: "Evening", icon: Sunset, description: "After 4pm" },
+const ALLERGY_OPTIONS = [
+  "Peanuts", "Tree Nuts", "Milk", "Eggs", "Wheat", "Soy", "Fish", "Shellfish", "Sesame"
 ];
 
 interface SettingsProps {
   userBudget: number;
-  setUserBudget: (value: number) => void;
+  setUserBudget: (n: number) => void;
   dark: boolean;
-  setDark: (value: boolean) => void;
+  setDark: (b: boolean) => void;
 }
 
 export function SettingsComponent({ userBudget, setUserBudget, dark, setDark }: SettingsProps) {
   const router = useRouter();
-  const supabase = createClient();
-
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [budget, setBudget] = useState(userBudget);
 
-  const [dietaryPreferences, setDietaryPreferences] = useState<string[]>([]);
+  const [dietary, setDietary] = useState<string[]>([]);
   const [allergies, setAllergies] = useState<string[]>([]);
-  const [preferredMealTypes, setPreferredMealTypes] = useState<string[]>([]);
-  const [reminders, setReminders] = useState({ morning: true, lunch: true, evening: true });
+  const [budget, setBudget] = useState(String(userBudget));
 
   useEffect(() => {
+    const loadSettings = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUser(user);
+        const meta = user.user_metadata || {};
+        if (Array.isArray(meta.dietary_preferences)) setDietary(meta.dietary_preferences);
+        if (Array.isArray(meta.allergies)) setAllergies(meta.allergies);
+      }
+      setLoading(false);
+    };
     loadSettings();
   }, []);
 
-  // Keep in step if the app finishes loading the saved budget after this page opens.
-  useEffect(() => {
-    setBudget(userBudget);
-  }, [userBudget]);
-
-  async function loadSettings() {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-      setUser(user);
-
-      const { data: prefs } = await supabase.from("user_preferences").select("reminders").eq("user_id", user.id).single();
-      if (prefs?.reminders) setReminders(prefs.reminders);
-
-      setDietaryPreferences(user.user_metadata?.dietary_preferences || []);
-      setAllergies(user.user_metadata?.allergies || []);
-      setPreferredMealTypes(user.user_metadata?.preferred_meal_types || []);
-    } catch (error) {
-      toast.error(MESSAGES.network.generic);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function saveSettings() {
+  const saveSettings = async () => {
     if (!user) return;
-    if (!Number.isFinite(budget) || budget < 1 || budget > 100000) {
-      toast.error("Enter a daily budget between KES 1 and KES 100,000.");
-      return;
-    }
     setSaving(true);
-    setSaved(false);
-    try {
-      const { error: authError } = await supabase.auth.updateUser({
-        data: { dietary_preferences: dietaryPreferences, allergies, preferred_meal_types: preferredMealTypes },
-      });
-      if (authError) {
-        toast.error(authErrorMessage(authError));
-        return;
-      }
-      const { error: dbError } = await supabase.from("user_preferences").upsert(
-        {
-          user_id: user.id,
-          reminders,
-          user_budget: budget,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      );
-      if (dbError) {
-        toast.error(dbErrorMessage(dbError));
-        return;
-      }
-      // Tell the rest of the app, so it does not save the old budget back later.
-      setUserBudget(budget);
-      setSaved(true);
-      toast.success("Settings saved.");
-      setTimeout(() => setSaved(false), 3000);
-    } catch (error) {
-      toast.error(MESSAGES.network.generic);
-    } finally {
-      setSaving(false);
+    const supabase = createClient();
+
+    const cleanBudget = Number(budget);
+    if (!isNaN(cleanBudget) && cleanBudget >= 0) {
+      setUserBudget(cleanBudget);
     }
-  }
 
-  function toggle(list: string[], setList: (v: string[]) => void, id: string) {
-    setList(list.includes(id) ? list.filter((v: string) => v !== id) : [...list, id]);
-  }
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        dietary_preferences: dietary,
+        allergies: allergies,
+      },
+    });
 
-  function toggleTheme() {
-    // The app applies the class and saves it (see food-app.tsx).
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Preferences updated");
+      router.refresh();
+    }
+    setSaving(false);
+  };
+
+  const toggleTheme = () => {
     setDark(!dark);
-  }
+  };
 
-  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="size-8 animate-spin text-accent" /></div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-accent" />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <p className="eyebrow text-accent">Preferences</p>
-        <h1 className="section-title mt-3">Make Chakula fit your table.</h1>
-      </div>
-
-      <div className="flex justify-end">
-        <button onClick={saveSettings} disabled={saving} className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60">
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+    <div className="flex flex-col gap-8 pb-16 pt-4">
+      {/* HEADER */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="eyebrow">Preferences</p>
+          <h1 className="section-title mt-3">Settings.</h1>
+          <p className="mt-3 text-muted-foreground">
+            Personalise your experience and manage dietary needs.
+          </p>
+        </div>
+        <button
+          onClick={saveSettings}
+          disabled={saving}
+          className="flex items-center gap-2 rounded-xl bg-accent px-6 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
+        >
+          {saving && <Loader2 className="size-4 animate-spin" />}
+          Save Changes
         </button>
       </div>
 
-      <div className="grid gap-5">
-        <SettingSection icon={Wallet} title="Daily Budget" description="We'll try to recommend meals within this limit.">
-           <div className="relative w-full sm:w-64">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-semibold text-muted-foreground">KES</span>
-              <input type="number" value={budget || ""} onChange={(e) => setBudget(Number(e.target.value))} className="w-full rounded-xl border-2 border-border bg-background py-3 pl-14 pr-4 text-xl font-bold outline-none focus:border-accent" />
-            </div>
-        </SettingSection>
+      <div className="grid gap-6 lg:grid-cols-[1fr_350px]">
+        {/* LEFT COLUMN */}
+        <div className="flex flex-col gap-6">
+          {/* DIETARY */}
+          <section className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+            <h2 className="font-serif text-xl border-b border-border pb-4 mb-4">Dietary Preferences</h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Chakula Assistant uses this to personalise meal suggestions.
+            </p>
+            <EditableChipGroup
+              options={DIETARY_OPTIONS}
+              selected={dietary}
+              onChange={setDietary}
+              placeholder="Add custom diet..."
+            />
+          </section>
 
-        <SettingSection icon={dark ? Moon : Sun} title="Theme" description="Saved on this device.">
-          <button onClick={toggleTheme} className="filter-pill filter-pill-active inline-flex w-fit items-center gap-2">
-            {dark ? <Moon className="size-4" /> : <Sun className="size-4" />} {dark ? "Dark mode" : "Light mode"}
-          </button>
-        </SettingSection>
+          {/* ALLERGIES */}
+          <section className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+            <h2 className="font-serif text-xl border-b border-border pb-4 mb-4 flex items-center gap-2">
+              Allergies & Restrictions
+              <AlertTriangle className="size-5 text-highlight" />
+            </h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Chakula Assistant hides recipes whose ingredients match these. Recipe data is incomplete, so always read the ingredients yourself.
+            </p>
+            <EditableChipGroup
+              options={ALLERGY_OPTIONS}
+              selected={allergies}
+              onChange={setAllergies}
+              placeholder="Add custom allergy..."
+            />
+          </section>
+        </div>
 
-        <SettingSection icon={Apple} title="Dietary preferences" description="Select anything that applies to you.">
-          <EditableChipGroup 
-            options={dietaryOptions} 
-            selected={dietaryPreferences} 
-            onToggle={(id: string) => toggle(dietaryPreferences, setDietaryPreferences, id)} 
-            onAddCustom={(v: string) => setDietaryPreferences((prev: string[]) => [...prev, v])} 
-            onRemoveCustom={(v: string) => setDietaryPreferences((prev: string[]) => prev.filter((i: string) => i !== v))} 
-            placeholder="Add preference" 
-          />
-        </SettingSection>
-
-        <SettingSection icon={AlertCircle} title="Allergies & restrictions" description="Saved to your profile. Recipes are not checked against these yet, so always read the ingredients.">
-          <EditableChipGroup 
-            warn 
-            options={allergyOptions} 
-            selected={allergies} 
-            onToggle={(id: string) => toggle(allergies, setAllergies, id)} 
-            onAddCustom={(v: string) => setAllergies((prev: string[]) => [...prev, v])} 
-            onRemoveCustom={(v: string) => setAllergies((prev: string[]) => prev.filter((i: string) => i !== v))} 
-            placeholder="Add allergy" 
-          />
-        </SettingSection>
-
-        <SettingSection icon={UtensilsCrossed} title="Preferred meal types" description="What you reach for most.">
-          <EditableChipGroup 
-            options={mealTypeOptions} 
-            selected={preferredMealTypes} 
-            onToggle={(id: string) => toggle(preferredMealTypes, setPreferredMealTypes, id)} 
-            onAddCustom={(v: string) => setPreferredMealTypes((prev: string[]) => [...prev, v])} 
-            onRemoveCustom={(v: string) => setPreferredMealTypes((prev: string[]) => prev.filter((i: string) => i !== v))} 
-            placeholder="Add meal type" 
-          />
-        </SettingSection>
-
-        {REMINDERS_ENABLED && (
-        <SettingSection icon={Bell} title="Meal reminders" description="A gentle nudge at the right time.">
-          <div className="flex flex-col gap-3">
-            {mealPeriods.map((period) => (
-              <button key={period.id} onClick={() => setReminders((prev) => ({ ...prev, [period.id]: !prev[period.id] }))} className={`flex items-center justify-between rounded-xl px-4 py-3 text-left transition ${reminders[period.id] ? "bg-accent/10" : "bg-secondary"}`}>
-                <span className="flex items-center gap-3"><period.icon className={`size-5 ${reminders[period.id] ? "text-accent" : "text-muted-foreground"}`} /><span><span className="block text-sm font-semibold">{period.label}</span><span className="block text-xs text-muted-foreground">{period.description}</span></span></span>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${reminders[period.id] ? "bg-accent text-accent-foreground" : "bg-card text-muted-foreground"}`}>{reminders[period.id] ? "On" : "Off"}</span>
+        {/* RIGHT COLUMN */}
+        <div className="flex flex-col gap-6">
+          {/* APPEARANCE */}
+          <section className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="font-serif text-xl border-b border-border pb-4 mb-4">Appearance</h2>
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="font-medium">Theme</p>
+                <p className="text-sm text-muted-foreground">Switch between light and dark mode.</p>
+              </div>
+              <button
+                onClick={toggleTheme}
+                className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-sm font-semibold transition hover:bg-secondary"
+              >
+                <span className="flex items-center gap-2">
+                  {dark ? <Sun className="size-5 text-accent" /> : <Moon className="size-5 text-accent" />}
+                  {dark ? "Light Mode" : "Dark Mode"}
+                </span>
+                <div className={`flex size-6 items-center justify-center rounded-full border-2 ${dark ? "border-accent bg-accent/20" : "border-border"}`}>
+                  {dark && <Check className="size-3 text-accent" />}
+                </div>
               </button>
-            ))}
-          </div>
-        </SettingSection>
-        )}
+            </div>
+          </section>
+
+          {/* BUDGET */}
+          <section className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="font-serif text-xl border-b border-border pb-4 mb-4 flex items-center gap-2">
+              <Wallet className="size-5 text-accent" /> Budget
+            </h2>
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="font-medium">Daily Budget</p>
+                <p className="text-sm text-muted-foreground">Used to filter and rank recipes.</p>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 transition focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/10">
+                <span className="font-semibold text-muted-foreground">KES</span>
+                <input
+                  type="number"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  className="w-full bg-transparent text-right text-base font-semibold outline-none"
+                />
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
 }
 
-function SettingSection({ icon: Icon, title, description, children }: any) {
-  return (
-    <div className="panel p-6 sm:p-8 rounded-2xl border border-border/60 bg-card">
-      <div className="mb-5 flex items-start gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-accent"><Icon className="size-4" /></span>
-        <div><h2 className="font-serif text-xl">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Chip({ active, icon: Icon, label, onClick, warn }: any) {
-  return (
-    <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm font-semibold transition ${warn ? (active ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-secondary text-muted-foreground hover:bg-card") : (active ? "filter-pill-active" : "filter-pill")}`}>
-      <Icon className="size-3.5" />{label}{active && <Check className="size-3" />}
-    </button>
-  );
-}
-
-function EditableChipGroup({ 
-  options, selected, onToggle, onAddCustom, onRemoveCustom, warn, placeholder 
-}: { 
-  options: Option[]; 
-  selected: string[]; 
-  onToggle: (id: string) => void; 
-  onAddCustom: (v: string) => void; 
-  onRemoveCustom: (v: string) => void; 
-  warn?: boolean; 
-  placeholder: string; 
+function EditableChipGroup({
+  options,
+  selected,
+  onChange,
+  placeholder,
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (val: string[]) => void;
+  placeholder: string;
 }) {
   const [draft, setDraft] = useState("");
-  const customItems = selected.filter((id: string) => !options.some((o: Option) => o.id === id));
-  
+
+  const toggle = (item: string) => {
+    if (selected.includes(item)) onChange(selected.filter((s) => s !== item));
+    else onChange([...selected, item]);
+  };
+
+  const addDraft = () => {
+    const v = draft.trim().slice(0, 40);
+    if (!v) return;
+    if (!selected.some((s) => s.toLowerCase() === v.toLowerCase())) onChange([...selected, v]);
+    setDraft("");
+  };
+
+  const customItems = selected.filter((s) => !options.includes(s));
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="space-y-5">
       <div className="flex flex-wrap gap-2">
-        {options.map((o: Option) => <Chip key={o.id} warn={warn} active={selected.includes(o.id)} icon={o.icon} label={o.label} onClick={() => onToggle(o.id)} />)}
-        {customItems.map((item: string) => (
-          <span key={item} className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm font-semibold ${warn ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-accent/30 bg-accent/10 text-accent"}`}>
-            {item}<button onClick={() => onRemoveCustom(item)}><X className="size-3" /></button>
-          </span>
-        ))}
+        {options.map((opt) => {
+          const isSelected = selected.includes(opt);
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => toggle(opt)}
+              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm font-medium transition ${
+                isSelected
+                  ? "border-accent bg-accent/10 text-accent shadow-sm ring-1 ring-accent/20"
+                  : "border-border bg-background text-muted-foreground hover:border-accent/40 hover:bg-secondary"
+              }`}
+            >
+              {isSelected && <Check className="size-3.5" />}
+              {opt}
+            </button>
+          );
+        })}
       </div>
-      <div className="flex max-w-xs gap-2">
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if(draft.trim()){onAddCustom(draft.trim());setDraft("")} } }} placeholder={placeholder} className="text-input flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent" />
-        <button onClick={() => { if(draft.trim()){onAddCustom(draft.trim());setDraft("")} }} className="rounded-lg border border-border px-3 py-1.5 text-sm font-semibold hover:bg-secondary transition">Add</button>
+
+      {customItems.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-border/50">
+          {customItems.map((item) => (
+            <span
+              key={item}
+              className="flex items-center gap-1.5 rounded-xl border border-accent bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent"
+            >
+              {item}
+              <button
+                type="button"
+                onClick={() => toggle(item)}
+                className="rounded-md p-0.5 transition hover:bg-accent/20"
+                aria-label={`Remove ${item}`}
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex max-w-sm gap-2 pt-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addDraft();
+            }
+          }}
+          placeholder={placeholder}
+          className="flex-1 rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+        />
+        <button
+          type="button"
+          onClick={addDraft}
+          disabled={!draft.trim()}
+          className="flex items-center justify-center rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-secondary/80 disabled:opacity-50"
+        >
+          <Plus className="size-4" />
+        </button>
       </div>
     </div>
   );

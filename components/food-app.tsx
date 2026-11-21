@@ -72,6 +72,7 @@ export function FoodApp({
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [planVersion, setPlanVersion] = useState(0);
+  const [shopVersion, setShopVersion] = useState(0);
 
   const {
     data: catalogResponse,
@@ -392,7 +393,7 @@ export function FoodApp({
     const target = next as View;
     setView(target);
     setMobileOpen(false);
-    
+
     const paths: Partial<Record<View, string>> = {
       home: "/dashboard",
       browse: "/explore",
@@ -420,15 +421,26 @@ export function FoodApp({
       budget={userBudget}
       pantry={pantry}
       favorites={favorites}
+      shopping={shopping}
+      history={history}
       onOpenRecipe={open}
       onSetFavorite={(id, on) =>
         setFavorites((c) => (on ? (c.includes(id) ? c : [id, ...c]) : c.filter((v) => v !== id)))
       }
       onSetBudget={setUserBudget}
-      onShoppingAdded={(names) =>
-        setShopping((c) => [...c, ...names.filter((n) => !c.some((x) => x.toLowerCase() === n.toLowerCase()))])
-      }
+      onShoppingAdded={(names) => {
+        setShopping((c) => [...c, ...names.filter((n) => !c.some((x) => x.toLowerCase() === n.toLowerCase()))]);
+        setShopVersion((v) => v + 1);
+      }}
       onPlansChanged={() => setPlanVersion((v) => v + 1)}
+      onPantryChange={(add, remove) =>
+        setPantry((c) => {
+          const drop = new Set(remove.map((r) => r.toLowerCase()));
+          const kept = c.filter((p) => !drop.has(p.toLowerCase()));
+          const have = new Set(kept.map((p) => p.toLowerCase()));
+          return [...kept, ...add.filter((n) => !have.has(n.toLowerCase()))];
+        })
+      }
     >
       <div className="min-h-screen bg-background text-foreground">
         <Sidebar active={view} onNavigate={nav} dark={dark} onToggleTheme={() => setDark(!dark)} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} userEmail={userEmail} userName={userName} />
@@ -466,9 +478,9 @@ export function FoodApp({
             {view === "pantry" && <Pantry recipes={catalog} pantry={pantry} setPantry={setPantry} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
             {view === "surprise" && <Surprise catalog={catalog} onCook={cook} open={open} images={viewImages} onSave={toggle} favorites={favorites} defaultBudget={userBudget} />}
             {view === "detail" && selected && <Detail key={selected.id} recipe={selected} catalog={catalog} pantry={pantry} favorite={favorites.includes(selected.id)} toggle={() => toggle(selected.id)} cook={() => cook(selected)} open={open} images={viewImages} onImageChange={setImageOverrides} onGlobalImageChange={setGlobalImage} canEditImage={process.env.NEXT_PUBLIC_RECIPE_IMAGE_MODE !== "global" || isAdmin} />}
-            {view === "planner" && <Planner recipes={catalog} open={open} shopping={shopping} setShopping={setShopping} images={viewImages} />}
+            {view === "planner" && <Planner key={`planner-${planVersion}`} recipes={catalog} open={open} shopping={shopping} setShopping={setShopping} pantry={pantry} images={viewImages} />}
             {view === "meals" && <Meals catalog={catalog} loved={loved} history={history} open={open} images={viewImages} />}
-            {view === "shopping" && <Shopping items={shopping} setItems={setShopping} />}
+            {view === "shopping" && <Shopping key={`shopping-${shopVersion}`} items={shopping} setItems={setShopping} />}
             {view === "profile" && <ProfileComponent />}
             {view === "settings" && <SettingsComponent userBudget={userBudget} setUserBudget={setUserBudget} dark={dark} setDark={setDark} />}
           </main>

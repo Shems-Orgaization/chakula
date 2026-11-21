@@ -2,12 +2,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { addToShoppingList } from "@/lib/shopping-actions";
 import { Recipe } from "@/lib/recipes";
 import { matchRecipe, Match } from "@/lib/recommendations";
-import { RecipeImage } from "@/components/recipe-image"; // ✅ ADDED
+import { RecipeImage } from "@/components/recipe-image";
+import { useAssistant } from "@/components/assistant-provider";
 
 interface PantryProps {
   recipes: Recipe[];
@@ -16,7 +17,7 @@ interface PantryProps {
   open: (recipe: Recipe) => void;
   shopping: string[];
   setShopping: (items: string[]) => void;
-  images?: Record<string, string>; // ✅ ADDED
+  images?: Record<string, string>;
 }
 
 export function Pantry({
@@ -26,9 +27,11 @@ export function Pantry({
   open,
   shopping,
   setShopping,
-  images = {}, // ✅ ADDED
+  images = {},
 }: PantryProps) {
+  const { openAssistant } = useAssistant();
   const [input, setInput] = useState("");
+  const [say, setSay] = useState("");
 
   const matches = useMemo(
     () =>
@@ -109,6 +112,34 @@ export function Pantry({
             </button>
           ))}
         </div>
+
+        <form
+          className="mt-5 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = say.trim();
+            if (!t) return;
+            setSay("");
+            openAssistant({ page: "pantry", prompt: `Update my pantry from this message: ${t}` });
+          }}
+        >
+          <label htmlFor="pantry-ai" className="sr-only">Tell Chakula what you have</label>
+          <input
+            id="pantry-ai"
+            value={say}
+            onChange={(e) => setSay(e.target.value)}
+            maxLength={300}
+            placeholder='Or just say it: "2kg rice, eggs, sukuma. Finished the milk"'
+            className="flex-1 rounded-lg border border-border bg-background px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+          />
+          <button
+            type="submit"
+            disabled={!say.trim()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold transition hover:bg-secondary disabled:opacity-50"
+          >
+            <Sparkles className="size-4" /> Ask Chakula
+          </button>
+        </form>
       </div>
 
       <h2 className="section-title text-3xl">Here&apos;s what you can make</h2>
@@ -131,7 +162,6 @@ export function Pantry({
               className="flex min-w-0 flex-1 items-center gap-3 text-left"
               onClick={() => open(m.recipe)}
             >
-              {/* ✅ REPLACED WITH RecipeImage */}
               <div className="size-16 shrink-0 overflow-hidden rounded-lg">
                 <RecipeImage
                   recipe={m.recipe}

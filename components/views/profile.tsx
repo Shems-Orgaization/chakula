@@ -1,292 +1,417 @@
 // components/views/profile.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
-import { MESSAGES, authErrorMessage, dbErrorMessage } from "@/lib/messages";
-import {
-  Save, Mail, Calendar, Heart, UtensilsCrossed, ShoppingBag,
-  Loader2, Lock, Eye, EyeOff, Check, Leaf, AlertCircle
+import { createClient } from "@/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
+import { 
+  Loader2, User as UserIcon, Mail, Shield, LogOut, Key, 
+  CheckCircle2, AlertCircle, Camera, Eye, EyeOff,
+  Trash2, CalendarDays, Utensils
 } from "lucide-react";
-
-function initialsFrom(name: string, email: string) {
-  const source = (name || "").trim() || email || "";
-  const parts = source.split(/[\s@.]+/).filter(Boolean);
-  const letters = parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "");
-  return letters.join("") || "C";
-}
-
-function FormMessage({ type, children }: { type: "error" | "success"; children: React.ReactNode }) {
-  if (!children) return null;
-  return (
-    <p
-      role={type === "error" ? "alert" : "status"}
-      className={`mt-3 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
-        type === "error"
-          ? "border-destructive/30 bg-destructive/5 text-destructive"
-          : "border-green-500/30 bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400"
-      }`}
-    >
-      {type === "success" && <Check className="size-4 shrink-0" />}
-      {type === "error" && <AlertCircle className="size-4 shrink-0" />}
-      {children}
-    </p>
-  );
-}
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export function ProfileComponent() {
   const router = useRouter();
-
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  
   const [displayName, setDisplayName] = useState("");
-  const [memberSince, setMemberSince] = useState<string | null>(null);
-  const [stats, setStats] = useState({ favorites: 0, cooked: 0, pantryItems: 0, mealPlans: 0 });
-  const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
-  const [allergies, setAllergies] = useState<string[]>([]);
-
-  // ===== PASSWORD CHANGE =====
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
-  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    const loadProfile = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUser(user);
+        setDisplayName(user.user_metadata?.display_name || user.user_metadata?.full_name || "");
+        setAvatarUrl(user.user_metadata?.avatar_url || null);
+      }
+      setLoading(false);
+    };
     loadProfile();
   }, []);
 
-  async function loadProfile() {
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-      
-      setUser(user);
-      setDisplayName(user.user_metadata?.display_name || "");
-      setDietaryPrefs(user.user_metadata?.dietary_preferences || []);
-      setAllergies(user.user_metadata?.allergies || []);
-
-      const { data: profile } = await supabase.from("profiles").select("display_name, created_at").eq("id", user.id).single();
-      if (profile) {
-        setDisplayName(profile.display_name || user.user_metadata?.display_name || "");
-        setMemberSince(profile.created_at);
-      }
-
-      const { data: prefs } = await supabase.from("user_preferences").select("favorites, history, pantry").eq("user_id", user.id).single();
-      if (prefs) {
-        setStats({ favorites: prefs.favorites?.length || 0, cooked: prefs.history?.length || 0, pantryItems: prefs.pantry?.length || 0, mealPlans: 0 });
-      }
-
-      const { count: planCount } = await supabase.from("user_meal_plans").select("*", { count: "exact", head: true }).eq("user_id", user.id);
-      setStats((prev) => ({ ...prev, mealPlans: planCount || 0 }));
-    } catch (error) {
-      toast.error(MESSAGES.network.generic);
-    } finally { 
-      setLoading(false); 
+  const saveProfile = async () => {
+    const name = displayName.trim().slice(0, 60);
+    if (!user) return;
+    if (!name) {
+      toast.error("Please enter your name.");
+      return;
     }
-  }
 
-  async function saveProfile() {
+    setSaving(true);
+    const supabase = createClient();
+
+    const { error } = await supabase.auth.updateUser({
+      data: { display_name: name },
+    });
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      await supabase.from("profiles").upsert({
+        id: user.id,
+        display_name: name,
+      }, { onConflict: "id" });
+      
+      toast.success("Profile updated");
+      window.dispatchEvent(new Event("chakula:data-changed"));
+      router.refresh();
+    }
+    setSaving(false);
+  };
+
+  const changePassword = async () => {
+    if (!user?.email) return;
+    
+    if (!newPassword || newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    setSaving(true);
+    const supabase = createClient();
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Password changed successfully");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+    }
+    setSaving(false);
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be less than 2MB");
+      return;
+    }
+
+    setSaving(true);
+    const supabase = createClient();
+    
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `${user.id}/${fileName}`; 
+
+    const { error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      toast.error("Failed to upload image: " + uploadError.message);
+      setSaving(false);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(filePath);
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      data: { avatar_url: publicUrl }
+    });
+
+    if (updateError) {
+      toast.error("Failed to save profile picture");
+    } else {
+      setAvatarUrl(publicUrl);
+      toast.success("Profile picture updated");
+      window.dispatchEvent(new Event("chakula:data-changed"));
+      router.refresh();
+    }
+    setSaving(false);
+  };
+
+  const removeAvatar = async () => {
     if (!user) return;
     setSaving(true);
-    try {
-      const supabase = createClient();
-      
-      const { error: authError } = await supabase.auth.updateUser({ 
-        data: { display_name: displayName } 
-      });
-      
-      if (authError) {
-        toast.error(authErrorMessage(authError));
-        return;
-      }
-
-      const { error: dbError } = await supabase.from("profiles").upsert({ 
-        id: user.id, 
-        display_name: displayName, 
-        updated_at: new Date().toISOString() 
-      });
-
-      if (dbError) {
-        toast.error(dbErrorMessage(dbError));
-        return;
-      }
-
-      toast.success("Profile updated successfully.");
-    } catch (error) {
-      toast.error(MESSAGES.network.generic);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function changePassword() {
-    setPasswordError(null); 
-    setPasswordSuccess(null);
+    const supabase = createClient();
     
-    if (!currentPassword || !newPassword || !confirmPassword) return setPasswordError("Please fill in all three fields.");
-    if (newPassword.length < 8) return setPasswordError(MESSAGES.auth.passwordTooShort);
-    if (newPassword !== confirmPassword) return setPasswordError(MESSAGES.auth.passwordMismatch);
-    if (newPassword === currentPassword) return setPasswordError("New password must be different from the current one.");
+    const { error } = await supabase.auth.updateUser({
+      data: { avatar_url: null }
+    });
 
-    setPasswordSaving(true);
+    if (error) {
+      toast.error("Failed to remove avatar");
+    } else {
+      setAvatarUrl(null);
+      toast.success("Profile picture removed");
+      window.dispatchEvent(new Event("chakula:data-changed"));
+      router.refresh();
+    }
+    setSaving(false);
+  };
+
+  const logout = async () => {
     try {
       const supabase = createClient();
-      
-      const { error: signInError } = await supabase.auth.signInWithPassword({ 
-        email: user.email, 
-        password: currentPassword,
-      });
-
-      if (signInError) { 
-        setPasswordError(
-          signInError.code === "invalid_credentials"
-            ? MESSAGES.auth.currentPasswordIncorrect
-            : authErrorMessage(signInError),
-        ); 
-        return; 
-      }
-      
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-      
-      if (updateError) { 
-        setPasswordError(authErrorMessage(updateError)); 
-        return; 
-      }
-
-      setPasswordSuccess("Password updated successfully.");
-      toast.success("Password updated successfully.");
-      setCurrentPassword(""); 
-      setNewPassword(""); 
-      setConfirmPassword(""); 
-      setTimeout(() => { setShowPasswordForm(false); setPasswordSuccess(null); }, 4000);
-    } catch (err: any) { 
-      setPasswordError(MESSAGES.network.generic); 
-    } finally { 
-      setPasswordSaving(false); 
+      await supabase.auth.signOut();
+      document.cookie = "chakula-last-active=; Max-Age=0; path=/";
+      router.replace("/login");
+      router.refresh();
+    } catch (e) {
+      console.error("Logout error:", e);
     }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-accent" />
+      </div>
+    );
   }
 
-  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="size-8 animate-spin text-accent" /></div>;
+  if (!user) return null;
 
-  const joined = memberSince ? new Date(memberSince).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : null;
+  const memberSince = new Date(user.created_at).toLocaleDateString("en-KE", {
+    month: "long",
+    year: "numeric",
+  });
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-8 pb-16 pt-4">
       <div>
-        <p className="eyebrow text-accent">Your account</p>
-        <h1 className="section-title mt-3">Karibu, {displayName || "friend"}.</h1>
-        <p className="mt-3 max-w-2xl leading-7 text-muted-foreground">This is where your Chakula details live.</p>
+        <p className="eyebrow">Your Account</p>
+        <h1 className="section-title mt-3">Profile.</h1>
       </div>
 
-      {/* PROFILE CARD */}
-      <div className="panel flex flex-col gap-6 p-6 sm:p-8 rounded-2xl border border-border/60 bg-card">
-        <div className="flex flex-col gap-6 border-b border-border pb-6 sm:flex-row sm:items-center">
-          <div className="flex size-20 shrink-0 items-center justify-center rounded-full bg-accent font-serif text-2xl text-accent-foreground">
-            {initialsFrom(displayName, user?.email || "")}
-          </div>
-          <div className="min-w-0 flex-1">
-            <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" className="w-full max-w-xs border-b-2 border-transparent bg-transparent font-serif text-2xl outline-none transition-colors hover:border-border focus:border-accent" />
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Mail className="size-4" /> {user?.email}</span>
-              {joined && <span className="flex items-center gap-1.5"><Calendar className="size-4" /> Member since {joined}</span>}
+      <div className="grid gap-6 lg:grid-cols-[350px_1fr]">
+        {/* LEFT COLUMN - PROFILE CARD */}
+        <div className="flex flex-col gap-6 contents lg:flex">
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm overflow-hidden relative">
+            <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-br from-accent/20 to-primary/10" />
+            
+            <div className="relative z-10 flex flex-col items-center mt-8">
+              {/* Avatar Uploader */}
+              <div className="group relative flex size-28 items-center justify-center rounded-full bg-background shadow-md ring-4 ring-background">
+                {avatarUrl ? (
+                  <img 
+                    src={avatarUrl} 
+                    alt={displayName} 
+                    className="size-full rounded-full object-cover" 
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center rounded-full bg-accent/10 text-accent">
+                    <UserIcon className="size-12" />
+                  </div>
+                )}
+                
+                {/* Hover Overlay */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-full bg-black/60 opacity-0 transition group-hover:opacity-100">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="rounded-full bg-white/20 p-2 text-white hover:bg-white/40"
+                    title="Upload new photo"
+                  >
+                    <Camera className="size-5" />
+                  </button>
+                  {avatarUrl && (
+                    <button
+                      onClick={removeAvatar}
+                      className="rounded-full bg-red-500/80 p-2 text-white hover:bg-red-500"
+                      title="Remove photo"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  ref={fileInputRef}
+                  onChange={handleAvatarChange}
+                />
+              </div>
+
+              {/* User Info */}
+              <h2 className="mt-4 font-serif text-2xl">{displayName || "No name set"}</h2>
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
+                <Mail className="size-4" /> {user.email}
+              </p>
+              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-foreground ring-1 ring-border">
+                <Shield className="size-3.5" /> 
+                {user.app_metadata?.role === "admin" ? "Administrator" : "Member"}
+              </div>
+
+              {/* Meta */}
+              <div className="mt-6 flex w-full flex-col gap-3 border-t border-border/50 pt-6 text-sm">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <CalendarDays className="size-4" />
+                  Joined {memberSince}
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Utensils className="size-4" />
+                  Saved recipes & plans
+                </div>
+              </div>
             </div>
           </div>
-          <button onClick={saveProfile} disabled={saving} className="primary-button shrink-0 flex items-center gap-2 px-6 py-2.5 bg-accent text-accent-foreground rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-60">
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {saving ? "Saving…" : "Save changes"}
+
+          {/* DIETARY PROFILE */}
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Dietary Profile</p>
+              <Link href="/settings" className="text-xs font-semibold text-accent hover:underline">
+                Edit
+              </Link>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {user.user_metadata?.dietary_preferences?.length || user.user_metadata?.allergies?.length ? (
+                <>
+                  {user.user_metadata.dietary_preferences?.map((d: string) => (
+                    <span key={d} className="inline-flex items-center gap-1 rounded-lg bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
+                      <CheckCircle2 className="size-3" /> {d}
+                    </span>
+                  ))}
+                  {user.user_metadata.allergies?.map((a: string) => (
+                    <span key={a} className="inline-flex items-center gap-1 rounded-lg bg-destructive/10 px-2.5 py-1 text-xs font-semibold text-destructive">
+                      <AlertCircle className="size-3" /> {a}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No dietary preferences set.</p>
+              )}
+            </div>
+          </div>
+
+          {/* LOG OUT (Desktop only) */}
+          <button
+            onClick={logout}
+            className="hidden lg:flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-destructive transition hover:bg-destructive/10"
+          >
+            <LogOut className="size-5" />
+            Log out
           </button>
         </div>
 
-        {/* Dietary Profile Display */}
-        <div className="border-b border-border pb-6">
-          <p className="eyebrow mb-4">Dietary Profile</p>
-          <div className="flex flex-col sm:flex-row gap-6">
-             <div className="flex-1">
-                <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground mb-2"><Leaf className="size-4" /> Preferences</div>
-                <div className="flex flex-wrap gap-2">
-                  {dietaryPrefs.length ? dietaryPrefs.map(p => <span key={p} className="rounded-full bg-secondary px-3 py-1 text-sm font-medium">{p}</span>) : <span className="text-sm text-muted-foreground">None set</span>}
-                </div>
-             </div>
-             <div className="flex-1">
-                <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground mb-2"><AlertCircle className="size-4 text-destructive" /> Allergies</div>
-                <div className="flex flex-wrap gap-2">
-                  {allergies.length ? allergies.map(a => <span key={a} className="rounded-full bg-destructive/10 text-destructive px-3 py-1 text-sm font-medium">{a}</span>) : <span className="text-sm text-muted-foreground">None set</span>}
-                </div>
-             </div>
-          </div>
-        </div>
-
-        <div>
-          <p className="eyebrow">Your kitchen so far</p>
-          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard icon={Heart} label="Favorites" value={stats.favorites} />
-            <StatCard icon={UtensilsCrossed} label="Cooked" value={stats.cooked} />
-            <StatCard icon={ShoppingBag} label="Pantry" value={stats.pantryItems} />
-            <StatCard icon={Calendar} label="Plans" value={stats.mealPlans} />
-          </div>
-        </div>
-      </div>
-
-      {/* SECURITY */}
-      <div className="panel p-6 sm:p-8 rounded-2xl border border-border/60 bg-card">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-accent"><Lock className="size-4" /></span>
-            <div><h2 className="font-serif text-xl">Password</h2><p className="text-sm text-muted-foreground">Keep your account secure.</p></div>
-          </div>
-          {!showPasswordForm && <button onClick={() => setShowPasswordForm(true)} className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold transition hover:bg-secondary">Change password</button>}
-        </div>
-
-        {showPasswordForm && (
-          <div className="mt-5 flex flex-col gap-4">
-            <PasswordField label="Current password" value={currentPassword} setValue={setCurrentPassword} show={showCurrent} setShow={setShowCurrent} autoComplete="current-password" />
-            <PasswordField label="New password" value={newPassword} setValue={setNewPassword} show={showNew} setShow={setShowNew} autoComplete="new-password" />
-            <PasswordField label="Confirm new password" value={confirmPassword} setValue={setConfirmPassword} show={showConfirm} setShow={setShowConfirm} autoComplete="new-password" />
-
-            {passwordError && <FormMessage type="error">{passwordError}</FormMessage>}
-            {passwordSuccess && <FormMessage type="success">{passwordSuccess}</FormMessage>}
-            
-            <div className="flex gap-2 mt-2">
-              <button onClick={changePassword} disabled={passwordSaving} className="flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-60">
-                {passwordSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Update
+        {/* RIGHT COLUMN - FORMS */}
+        <div className="flex flex-col gap-6">
+          {/* PERSONAL DETAILS */}
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+            <h3 className="flex items-center gap-2 font-serif text-xl border-b border-border pb-4 mb-6">
+              <UserIcon className="size-5 text-accent" /> Personal Details
+            </h3>
+            <label className="block max-w-lg">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Display Name</span>
+              <input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="e.g. Chef Amina"
+                className="mt-2 w-full rounded-2xl border border-border bg-background px-4 py-3 text-base outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+              />
+            </label>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={saveProfile}
+                disabled={saving}
+                className="rounded-xl bg-accent px-6 py-2.5 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="size-4 animate-spin" /> : "Save Name"}
               </button>
-              <button onClick={() => setShowPasswordForm(false)} className="rounded-xl border border-border px-5 py-2.5 font-semibold hover:bg-secondary">Cancel</button>
             </div>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
-function PasswordField({ label, value, setValue, show, setShow, autoComplete }: any) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
-      <div className="relative mt-2">
-        <input type={show ? "text" : "password"} value={value} onChange={(e) => setValue(e.target.value)} autoComplete={autoComplete} className="w-full rounded-xl border border-border bg-background px-4 py-3 pr-12 outline-none focus:border-accent" />
-        <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">{show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>
-      </div>
-    </label>
-  );
-}
+          {/* SECURITY */}
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+            <h3 className="flex items-center gap-2 font-serif text-xl border-b border-border pb-4 mb-6">
+              <Key className="size-5 text-accent" /> Security
+            </h3>
+            
+            <div className="space-y-4 max-w-lg">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New Password</span>
+                <div className="relative mt-2">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Min. 6 characters"
+                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-base outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+                  </button>
+                </div>
+              </label>
 
-function StatCard({ icon: Icon, label, value }: any) {
-  return (
-    <div className="rounded-2xl bg-secondary p-4 text-center">
-      <Icon className="mx-auto size-5 text-accent" />
-      <p className="mt-2 font-serif text-2xl">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Confirm Password</span>
+                <div className="relative mt-2">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 pr-12 text-base outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                  >
+                    {showConfirmPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+                  </button>
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={changePassword}
+                disabled={saving || !newPassword || !confirmPassword}
+                className="rounded-xl border border-border bg-background px-6 py-2.5 font-semibold transition hover:bg-secondary disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="size-4 animate-spin" /> : "Update Password"}
+              </button>
+            </div>
+          </div>
+          
+          {/* LOG OUT (Mobile only, absolute last item) */}
+          <button
+            onClick={logout}
+            className="flex lg:hidden w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-destructive transition hover:bg-destructive/10"
+          >
+            <LogOut className="size-5" />
+            Log out
+          </button>
+          
+        </div>
+      </div>
     </div>
   );
 }

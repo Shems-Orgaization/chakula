@@ -12,6 +12,8 @@ import { formatCost } from "@/lib/recommendations";
 import { RecipeImage } from "@/components/recipe-image";
 import { apiClient } from "@/lib/api-client";
 import { addToShoppingList } from "@/lib/shopping-actions";
+import { useAssistant } from "@/components/assistant-provider";
+import { inPantry } from "@/lib/pantry";
 
 interface Plan {
   id: string;
@@ -26,6 +28,7 @@ interface PlannerProps {
   open: (recipe: Recipe) => void;
   shopping: string[];
   setShopping: (items: string[]) => void;
+  pantry: string[];
   images?: Record<string, string>;
 }
 
@@ -65,8 +68,10 @@ export function Planner({
   open,
   shopping,
   setShopping,
+  pantry,
   images = {},
 }: PlannerProps) {
+  const { openAssistant } = useAssistant();
   const [weekStart, setWeekStart] = useState<Date>(getMonday(new Date()));
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +87,23 @@ export function Planner({
   const startDateStr = formatDate(weekDates[0]);
   const endDateStr = formatDate(weekDates[6]);
   const today = new Date();
+
+  const emptySlots = useMemo(() => {
+    const todayStr = formatDate(new Date());
+    return weekDates.flatMap((d) => {
+      const ds = formatDate(d);
+      if (ds < todayStr) return [];
+      return MEAL_SLOTS
+        .filter((s) => !plans.some((p) => p.plan_date === ds && p.meal_type === s.key))
+        .map((s) => `${ds} ${s.key}`);
+    });
+  }, [weekDates, plans]);
+
+  const fillWithAi = () =>
+    openAssistant({
+      page: "planner",
+      prompt: `Fill these empty meal slots, one recipe each, varied and within my daily budget. Use exactly these date and slot pairs: ${emptySlots.slice(0, 21).join(", ")}.`,
+    });
 
   // ----- LOAD PLANS -----
   const loadPlans = async () => {
@@ -133,14 +155,11 @@ export function Planner({
   // ----- REMOVE MEAL (Optimistic) -----
   const removeMeal = async (planId: string) => {
     const previousPlans = [...plans];
-    
-    // Optimistic update
     setPlans((prev) => prev.filter((p) => p.id !== planId));
 
     const res = await apiClient(`/api/plans?id=${planId}`, { method: "DELETE" });
 
     if (!res.ok) {
-      // Rollback
       setPlans(previousPlans);
       toast.error(res.error);
     } else {
@@ -151,16 +170,14 @@ export function Planner({
   // ----- GENERATE SHOPPING LIST -----
   const generateShoppingList = async () => {
     const allIngredients = new Set<string>();
-
     plans.forEach((plan) => {
       const recipe = catalog.find((r) => r.id === plan.recipe_id);
-      if (recipe?.ingredients) {
-        recipe.ingredients.forEach((ing) => allIngredients.add(ing.name));
-      }
+      recipe?.ingredients.forEach((ing) => {
+        if (!inPantry(ing.name, pantry)) allIngredients.add(ing.name);
+      });
     });
-
     if (allIngredients.size === 0) {
-      toast.error("No meals planned this week");
+      toast.info(plans.length === 0 ? "No meals planned this week" : "Your pantry already covers this week");
       return;
     }
 
@@ -184,14 +201,14 @@ export function Planner({
     if (!confirm("Clear all meals for this week?")) return;
 
     const previousPlans = [...plans];
-    setPlans([]); // Optimistic
+    setPlans([]);
 
     const res = await apiClient(`/api/plans?date=${startDateStr}&end=${endDateStr}&clear=true`, {
       method: "DELETE",
     });
 
     if (!res.ok) {
-      setPlans(previousPlans); // Rollback
+      setPlans(previousPlans);
       toast.error(res.error);
     } else {
       toast.success("Week cleared");
@@ -235,6 +252,14 @@ export function Planner({
         </div>
         <div className="flex gap-2">
           <button
+            type="button"
+            onClick={fillWithAi}
+            disabled={emptySlots.length === 0 || loading}
+            className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
+          >
+            <Sparkles className="size-4" /> Fill with Chakula
+          </button>
+          <button
             onClick={goToday}
             className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold transition hover:bg-secondary"
           >
@@ -243,7 +268,7 @@ export function Planner({
           <button
             onClick={clearWeek}
             disabled={totalMeals === 0}
-            className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+            className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm font-semibold text-destructive transition hover:bg-destructive/20 disabled:opacity-50"
           >
             <Trash2 className="size-4" />
             Clear Week
@@ -313,7 +338,6 @@ export function Planner({
                   isToday ? "border-accent shadow-md" : "border-border"
                 }`}
               >
-                {/* Day Header */}
                 <div className={`flex items-center justify-between px-5 py-3 ${isToday ? "bg-accent/10" : "bg-secondary/40"}`}>
                   <div className="flex items-center gap-3">
                     <Calendar className={`size-4 ${isToday ? "text-accent" : "text-muted-foreground"}`} />
@@ -333,7 +357,6 @@ export function Planner({
                   </div>
                 </div>
 
-                {/* Meal Slots */}
                 <div className="grid gap-3 p-4 md:grid-cols-3">
                   {MEAL_SLOTS.map((slot) => {
                     const plan = getPlanForSlot(date, slot.key);
@@ -370,7 +393,7 @@ export function Planner({
                             </button>
                             <button
                               onClick={() => removeMeal(plan.id)}
-                              className="absolute -right-2 -top-2 rounded-full bg-red-500 p-1 text-white opacity-100 shadow-md transition sm:opacity-0 sm:group-hover:opacity-100"
+                              className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white opacity-100 shadow-md transition sm:opacity-0 sm:group-hover:opacity-100"
                               aria-label="Remove meal"
                             >
                               <X className="size-3" />
@@ -402,7 +425,7 @@ export function Planner({
           <div>
             <p className="font-serif text-2xl">Ready to shop?</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Generate a shopping list from your {totalMeals} planned meals
+              Generate a shopping list from your {totalMeals} planned meals. Items already in your pantry are skipped.
             </p>
           </div>
           <button
@@ -420,14 +443,13 @@ export function Planner({
       {pickerOpen && (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
           <div className="flex h-[90vh] w-full max-w-2xl flex-col rounded-t-3xl border border-border bg-card sm:h-auto sm:max-h-[85vh] sm:rounded-3xl">
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-border p-5">
               <div>
                 <p className="eyebrow text-xs uppercase tracking-wider text-muted-foreground">
                   Add to {pickerOpen.slot}
                 </p>
                 <h2 className="mt-1 font-serif text-2xl">
-                  {new Date(pickerOpen.date).toLocaleDateString("en-KE", {
+                  {new Date(`${pickerOpen.date}T00:00:00`).toLocaleDateString("en-KE", {
                     weekday: "long",
                     month: "short",
                     day: "numeric",
@@ -445,7 +467,6 @@ export function Planner({
               </button>
             </div>
 
-            {/* Search */}
             <div className="border-b border-border p-4">
               <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
                 <Search className="size-4 text-muted-foreground" />
@@ -459,7 +480,6 @@ export function Planner({
               </div>
             </div>
 
-            {/* Recipe List */}
             <div className="flex-1 overflow-y-auto p-4">
               {pickerRecipes.length === 0 ? (
                 <p className="py-12 text-center text-sm text-muted-foreground">

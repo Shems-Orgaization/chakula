@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Heart, ChefHat, PenSquare, Library, Search, Star,
-  Clock3, Plus, Loader2, TrendingUp, Edit3, Trash2, X, Check
+  Clock3, Plus, Loader2, TrendingUp, Edit3, Trash2, X, Check, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,7 @@ import { RecipeImage } from "@/components/recipe-image";
 import { Collections } from "./collections";
 import { UserRecipeForm } from "@/components/user-recipe-form";
 import { apiClient } from "@/lib/api-client";
+import { useAssistant } from "@/components/assistant-provider";
 
 interface MealsProps {
   catalog: Recipe[];
@@ -102,6 +103,7 @@ const toRecipe = (r: UserRecipe): Recipe => ({
 
 export function Meals({ catalog, loved, history, open, images = {} }: MealsProps) {
   const router = useRouter();
+  const { openAssistant } = useAssistant();
   const [activeTab, setActiveTab] = useState<Tab>("favorites");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -149,6 +151,12 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => void loadData();
+    window.addEventListener("chakula:data-changed", refresh);
+    return () => window.removeEventListener("chakula:data-changed", refresh);
   }, []);
 
   useEffect(() => {
@@ -301,16 +309,25 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
 
         <div className="flex gap-2">
           {activeTab === "mine" && (
-            <button
-              onClick={() => {
-                setEditingRecipe(null);
-                setShowRecipeForm(true);
-              }}
-              className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
-            >
-              <Plus className="size-4" />
-              Add Recipe
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => openAssistant({ page: "meals", prompt: "Create a recipe draft (create_recipe) for a cheap Kenyan meal I do not have yet, based on my favourites." })}
+                className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary"
+              >
+                <Sparkles className="size-4" /> Draft with Chakula
+              </button>
+              <button
+                onClick={() => {
+                  setEditingRecipe(null);
+                  setShowRecipeForm(true);
+                }}
+                className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
+              >
+                <Plus className="size-4" />
+                Add Recipe
+              </button>
+            </>
           )}
           {activeTab === "cooked" && (
             <button
@@ -339,7 +356,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
           onClick={() => setActiveTab("favorites")}
           className="rounded-2xl border border-border bg-card p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"
         >
-          <div className="flex items-center gap-2 text-red-500">
+          <div className="flex items-center gap-2 text-destructive">
             <Heart className="size-4" />
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Favorites</p>
           </div>
@@ -349,7 +366,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
           onClick={() => setActiveTab("cooked")}
           className="rounded-2xl border border-border bg-card p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"
         >
-          <div className="flex items-center gap-2 text-orange-500">
+          <div className="flex items-center gap-2 text-highlight">
             <ChefHat className="size-4" />
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Cooked</p>
           </div>
@@ -374,7 +391,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
           onClick={() => setActiveTab("collections")}
           className="rounded-2xl border border-border bg-card p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"
         >
-          <div className="flex items-center gap-2 text-purple-500">
+          <div className="flex items-center gap-2 text-primary">
             <Library className="size-4" />
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Collections</p>
           </div>
@@ -457,7 +474,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                     </button>
                     
                     <div className="absolute right-3 top-3 rounded-full bg-background/90 p-2 backdrop-blur shadow-sm">
-                      <Heart className="size-4 fill-red-500 text-red-500" />
+                      <Heart className="size-4 fill-destructive text-destructive" />
                     </div>
 
                     <div className="absolute left-3 top-3">
@@ -488,7 +505,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
 
                     <div className="flex items-center gap-2">
                       {stat?.avgRating && (
-                        <span className="flex items-center gap-1 rounded-md bg-yellow-500/10 px-1.5 py-1 text-xs font-bold text-yellow-600 dark:text-yellow-500">
+                        <span className="flex items-center gap-1 rounded-md bg-highlight/10 px-1.5 py-1 text-xs font-bold text-highlight">
                           <Star className="size-3 fill-current" />
                           {stat.avgRating}
                         </span>
@@ -546,7 +563,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                       </span>
                       {avgRating && (
                         <span className="flex items-center gap-1">
-                          <Star className="size-3 fill-yellow-500 text-yellow-500" />
+                          <Star className="size-3 fill-highlight text-highlight" />
                           {avgRating}
                         </span>
                       )}
@@ -610,7 +627,7 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
                         deleteUserRecipe(r.id);
                       }}
                       disabled={deletingId === r.id}
-                      className="rounded-lg bg-background/90 p-1.5 backdrop-blur transition hover:bg-red-500 hover:text-white disabled:opacity-50"
+                      className="rounded-lg bg-background/90 p-1.5 backdrop-blur transition hover:bg-destructive hover:text-white disabled:opacity-50"
                       aria-label="Delete"
                     >
                       {deletingId === r.id ? (
@@ -678,21 +695,27 @@ export function Meals({ catalog, loved, history, open, images = {} }: MealsProps
             setEditingRecipe(null);
             await loadData();
           }}
+          onDraftWithAi={(idea) => {
+            setShowRecipeForm(false);
+            setEditingRecipe(null);
+            openAssistant({ page: "meals", prompt: `Create a recipe draft (create_recipe) for: ${idea}. Keep it simple, Kenyan and cheap.` });
+          }}
         />
       )}
 
       {/* ============ LOG COOK MODAL ============ */}
       {showLogCookModal && (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-          <div className="w-full max-w-lg rounded-t-3xl border border-border bg-card sm:rounded-3xl">
+          <div className="w-full max-w-lg rounded-t-3xl border border-border bg-card sm:rounded-3xl" role="dialog" aria-modal="true" aria-labelledby="log-cook-title">
             <div className="flex items-center justify-between border-b border-border p-5">
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">Add to history</p>
-                <h3 className="mt-1 font-serif text-2xl">Log a cook</h3>
+                <h3 id="log-cook-title" className="mt-1 font-serif text-2xl">Log a cook</h3>
               </div>
               <button
                 onClick={() => setShowLogCookModal(false)}
                 className="rounded-lg p-2 transition hover:bg-secondary"
+                aria-label="Close"
               >
                 <X className="size-5" />
               </button>
