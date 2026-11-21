@@ -1,6 +1,15 @@
+// components/assistant-provider.tsx
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { localDateStr } from "@/lib/dates";
@@ -8,8 +17,17 @@ import { addToShoppingList } from "@/lib/shopping-actions";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import type { Recipe } from "@/lib/recipes";
 import type { View } from "@/lib/types";
-import type { AssistantAction, AssistantContext, AssistantPage, AssistantResponse, ChatMessage, FilterHandler } from "@/lib/assistant-types";
+import type {
+  AssistantAction,
+  AssistantContext,
+  AssistantPage,
+  AssistantResponse,
+  ChatMessage,
+  FilterHandler,
+} from "@/lib/assistant-types";
 import { AssistantPanel } from "./assistant-panel";
+
+const notifyDataChanged = () => window.dispatchEvent(new Event("chakula:data-changed"));
 
 type OpenArgs = { page?: AssistantPage; prompt?: string; context?: AssistantContext };
 type Ctx = { openAssistant: (args?: OpenArgs) => void; registerFilters: (fn: FilterHandler | null) => void };
@@ -29,18 +47,51 @@ type Props = {
   budget: number;
   pantry: string[];
   favorites: string[];
+  shopping: string[];
+  history: string[];
   onOpenRecipe: (r: Recipe) => void;
   onSetFavorite: (id: string, on: boolean) => void;
   onSetBudget: (n: number) => void;
   onShoppingAdded: (names: string[]) => void;
   onPlansChanged: () => void;
+  onPantryChange: (add: string[], remove: string[]) => void;
 };
 
-const pageOf = (v: View): AssistantPage => (v === "home" ? "dashboard" : v === "browse" ? "explore" : v === "detail" ? "detail" : "other");
+const PAGE_BY_VIEW: Partial<Record<View, AssistantPage>> = {
+  home: "dashboard",
+  browse: "explore",
+  detail: "detail",
+  pantry: "pantry",
+  planner: "planner",
+  shopping: "shopping",
+  surprise: "surprise",
+  meals: "meals",
+};
+const pageOf = (v: View): AssistantPage => PAGE_BY_VIEW[v] ?? "other";
 
-export function AssistantProvider({ children, view, selectedId, catalog, budget, pantry, favorites, onOpenRecipe, onSetFavorite, onSetBudget, onShoppingAdded, onPlansChanged }: Props) {
+export function AssistantProvider({
+  children,
+  view,
+  selectedId,
+  catalog,
+  budget,
+  pantry,
+  favorites,
+  shopping,
+  history,
+  onOpenRecipe,
+  onSetFavorite,
+  onSetBudget,
+  onShoppingAdded,
+  onPlansChanged,
+  onPantryChange,
+}: Props) {
   const [open, setOpen] = useState(false);
-  const [override, setOverride] = useState<{ view: View; page: AssistantPage; extra: AssistantContext } | null>(null);
+  const [override, setOverride] = useState<{
+    view: View;
+    page: AssistantPage;
+    extra: AssistantContext;
+  } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState<Record<string, "applied" | "undone">>({});
@@ -50,7 +101,9 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
   const undos = useRef(new Map<string, () => void>());
   const applying = useRef(new Set<string>());
   const filtersFn = useRef<FilterHandler | null>(null);
-  const registerFilters = useCallback((fn: FilterHandler | null) => { filtersFn.current = fn; }, []);
+  const registerFilters = useCallback((fn: FilterHandler | null) => {
+    filtersFn.current = fn;
+  }, []);
 
   const ov = override && override.view === view ? override : null;
   const page = ov?.page ?? pageOf(view);
@@ -63,6 +116,9 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
   const ctxFor = (pg: AssistantPage, extra?: AssistantContext): AssistantContext => ({
     budget,
     pantry: pantry.slice(0, 40),
+    shopping: shopping.slice(0, 40),
+    favorites: favorites.slice(0, 15),
+    recent: history.slice(0, 10),
     date: localDateStr(),
     recipeId: pg === "detail" ? selectedId : undefined,
     ...extra,
@@ -73,7 +129,10 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
     if (!msg || busy.current) return;
     busy.current = true;
     setLoading(true);
-    const history = messagesRef.current.filter((m) => !m.error).slice(-4).map((m) => ({ role: m.role, text: m.text.slice(0, 300) }));
+    const history = messagesRef.current
+      .filter((m) => !m.error)
+      .slice(-4)
+      .map((m) => ({ role: m.role, text: m.text.slice(0, 300) }));
     commit([...messagesRef.current, { id: uid(), role: "user", text: msg }]);
 
     const res = await apiClient<AssistantResponse>("/api/assistant", {
@@ -82,7 +141,16 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
     });
 
     if (res.ok) {
-      commit([...messagesRef.current, { id: uid(), role: "assistant", text: res.data.reply, recipes: res.data.recipes, actions: res.data.actions }]);
+      commit([
+        ...messagesRef.current,
+        {
+          id: uid(),
+          role: "assistant",
+          text: res.data.reply,
+          recipes: res.data.recipes,
+          actions: res.data.actions,
+        },
+      ]);
     } else {
       const errText =
         res.status === 429
@@ -126,50 +194,99 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
         if (!was) undos.current.set(key, () => onSetFavorite(a.recipeId, false));
       } else if (a.type === "set_filters") {
         const fn = filtersFn.current;
-        if (!fn) { toast.error("Open Explore to apply filters."); return; }
+        if (!fn) {
+          toast.error("Open Explore to apply filters.");
+          return;
+        }
         undos.current.set(key, fn(a.filters));
         setOpen(false);
-        toast.success("Filters applied", { action: { label: "Undo", onClick: () => undo(key) } });
+        toast.success("Filters applied", {
+          action: { label: "Undo", onClick: () => undo(key) },
+        });
       } else if (a.type === "create_recipe" || a.type === "my_version") {
         const d = a.draft;
         const res = await apiClient<{ recipe: { id: string } }>("/api/user-recipes", {
           method: "POST",
           body: JSON.stringify({
-            name: d.name, description: d.description, category: d.category, meal_type: d.mealType,
-            total_time_minutes: d.totalTime, servings: d.servings,
-            cost_min_kes: d.cost.min, cost_max_kes: d.cost.max,
-            ingredients: d.ingredients, instructions: d.instructions,
+            name: d.name,
+            description: d.description,
+            category: d.category,
+            meal_type: d.mealType,
+            total_time_minutes: d.totalTime,
+            servings: d.servings,
+            cost_min_kes: d.cost.min,
+            cost_max_kes: d.cost.max,
+            ingredients: d.ingredients,
+            instructions: d.instructions,
             tags: a.type === "my_version" ? ["AI-made", "My version"] : ["AI-made"],
           }),
         });
-        if (!res.ok) { toast.error(res.error); return; }
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         const id = res.data.recipe.id;
-        undos.current.set(key, () => { void apiClient(`/api/user-recipes?id=${id}`, { method: "DELETE" }); });
+        undos.current.set(key, () => {
+          void apiClient(`/api/user-recipes?id=${id}`, { method: "DELETE" }).then(notifyDataChanged);
+        });
         toast.success("Saved to My recipes");
+        notifyDataChanged();
       } else if (a.type === "suggest_correction") {
         const sb = createSupabaseClient();
         const { data } = await sb.auth.getUser();
-        if (!data.user) { toast.error("Please log in again."); return; }
-        const { error } = await sb.from("recipe_corrections").insert({ recipe_id: a.recipeId, user_id: data.user.id, note: a.note });
-        if (error) { toast.error("Could not send your note."); return; }
+        if (!data.user) {
+          toast.error("Please log in again.");
+          return;
+        }
+        const { error } = await sb
+          .from("recipe_corrections")
+          .insert({ recipe_id: a.recipeId, user_id: data.user.id, note: a.note });
+        if (error) {
+          toast.error("Could not send your note.");
+          return;
+        }
         toast.success("Thanks, we will review it");
       } else if (a.type === "plan_meals") {
         const dates = a.items.map((i) => i.date).sort();
-        const cur = await apiClient<{ plans: { plan_date: string; meal_type: string; recipe_id: string; servings: number }[] }>(
-          `/api/plans?start=${dates[0]}&end=${dates[dates.length - 1]}`,
+        const cur = await apiClient<{
+          plans: { plan_date: string; meal_type: string; recipe_id: string; servings: number }[];
+        }>(`/api/plans?start=${dates[0]}&end=${dates[dates.length - 1]}`);
+        if (!cur.ok) {
+          toast.error(cur.error);
+          return;
+        }
+        const before = new Map(
+          cur.data.plans.map((p) => [`${p.plan_date}|${p.meal_type}`, p]),
         );
-        if (!cur.ok) { toast.error(cur.error); return; }
-        const before = new Map(cur.data.plans.map((p) => [`${p.plan_date}|${p.meal_type}`, p]));
         const restore = async (list: typeof a.items) => {
           for (const i of list) {
             const prev = before.get(`${i.date}|${i.slot}`);
-            if (prev) await apiClient("/api/plans", { method: "POST", body: JSON.stringify({ plan_date: i.date, meal_type: i.slot, recipe_id: prev.recipe_id, servings: prev.servings }) });
-            else await apiClient(`/api/plans?date=${i.date}&meal_type=${i.slot}`, { method: "DELETE" });
+            if (prev)
+              await apiClient("/api/plans", {
+                method: "POST",
+                body: JSON.stringify({
+                  plan_date: i.date,
+                  meal_type: i.slot,
+                  recipe_id: prev.recipe_id,
+                  servings: prev.servings,
+                }),
+              });
+            else
+              await apiClient(`/api/plans?date=${i.date}&meal_type=${i.slot}`, {
+                method: "DELETE",
+              });
           }
         };
         const saved: typeof a.items = [];
         for (const i of a.items) {
-          const r = await apiClient("/api/plans", { method: "POST", body: JSON.stringify({ plan_date: i.date, meal_type: i.slot, recipe_id: i.recipeId }) });
+          const r = await apiClient("/api/plans", {
+            method: "POST",
+            body: JSON.stringify({
+              plan_date: i.date,
+              meal_type: i.slot,
+              recipe_id: i.recipeId,
+            }),
+          });
           if (!r.ok) {
             toast.error(r.error);
             await restore(saved);
@@ -178,7 +295,9 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
           }
           saved.push(i);
         }
-        undos.current.set(key, () => { void restore(saved).then(onPlansChanged); });
+        undos.current.set(key, () => {
+          void restore(saved).then(onPlansChanged);
+        });
         onPlansChanged();
         toast.success(`Planned ${saved.length} meal${saved.length === 1 ? "" : "s"}`);
       } else if (a.type === "add_to_shopping") {
@@ -188,6 +307,43 @@ export function AssistantProvider({ children, view, selectedId, catalog, budget,
           return;
         }
         onShoppingAdded(a.names);
+      } else if (a.type === "update_pantry") {
+        const have = new Set(pantry.map((p) => p.toLowerCase()));
+        const add = a.add.filter((n) => !have.has(n.toLowerCase()));
+        const remove = pantry.filter((p) =>
+          a.remove.some((r) => r.toLowerCase() === p.toLowerCase()),
+        );
+        if (!add.length && !remove.length) {
+          toast("Your pantry already matches.");
+          return;
+        }
+        onPantryChange(add, remove);
+        undos.current.set(key, () => onPantryChange(remove, add));
+      } else if (a.type === "create_collection") {
+        const created = await apiClient<{ collection: { id: string } }>("/api/collections", {
+          method: "POST",
+          body: JSON.stringify({ name: a.name, description: a.description, icon: a.icon, color: a.color }),
+        });
+        if (!created.ok) {
+          toast.error(created.error);
+          return;
+        }
+        const cid = created.data.collection.id;
+        let added = 0;
+        for (const r of a.recipes) {
+          const res = await apiClient("/api/collections/items", { method: "POST", body: JSON.stringify({ recipe_id: r.id, collection_ids: [cid] }) });
+          if (res.ok) added += 1;
+        }
+        if (added === 0) {
+          await apiClient(`/api/collections?id=${cid}`, { method: "DELETE" });
+          toast.error("Could not add recipes to the collection.");
+          return;
+        }
+        undos.current.set(key, () => {
+          void apiClient(`/api/collections?id=${cid}`, { method: "DELETE" }).then(notifyDataChanged);
+        });
+        notifyDataChanged();
+        toast.success(`Collection created with ${added} recipe${added === 1 ? "" : "s"}`);
       }
       setDone((d) => ({ ...d, [key]: "applied" }));
     } finally {

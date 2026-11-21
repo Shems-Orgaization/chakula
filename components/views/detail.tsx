@@ -187,7 +187,11 @@ export function Detail({
     setLoggingCook(true);
     const res = await apiClient("/api/meals", {
       method: "POST",
-      body: JSON.stringify({ recipe_id: recipe.id, recipe_name: recipe.name }),
+      body: JSON.stringify(
+        recipe.userRecipe
+          ? { user_recipe_id: recipe.id, recipe_name: recipe.name }
+          : { recipe_id: recipe.id, recipe_name: recipe.name },
+      ),
     });
     if (!res.ok) toast.error(res.error ?? MESSAGES.network.generic);
     setLoggingCook(false);
@@ -282,14 +286,18 @@ export function Detail({
               <Heart className={`size-4 ${favorite ? "fill-current text-warm" : ""}`} />
               {favorite ? "Saved" : "Save"}
             </button>
-            <button type="button" onClick={() => setCollectionsOpen(true)} className={secondaryBtn}>
-              <Library className="size-4" />
-              Collections
-            </button>
-            <button type="button" onClick={() => setPlanOpen(true)} className={secondaryBtn}>
-              <CalendarPlus className="size-4" />
-              Add to plan
-            </button>
+            {!recipe.userRecipe && (
+              <>
+                <button type="button" onClick={() => setCollectionsOpen(true)} className={secondaryBtn}>
+                  <Library className="size-4" />
+                  Collections
+                </button>
+                <button type="button" onClick={() => setPlanOpen(true)} className={secondaryBtn}>
+                  <CalendarPlus className="size-4" />
+                  Add to plan
+                </button>
+              </>
+            )}
             <button type="button" onClick={() => openAssistant({ page: "detail" })} className={secondaryBtn}>
               <Sparkles className="size-4" />
               Ask Chakula

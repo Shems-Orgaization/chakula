@@ -35,6 +35,7 @@ function mapUserRecipe(r: UserRow): Recipe {
     tags: r.tags ?? [],
     dietaryInfo: r.dietary_tags ?? [],
     popularity: 0,
+    userRecipe: true,
   };
 }
 

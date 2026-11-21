@@ -136,10 +136,12 @@ export function Surprise({
   };
 
   const handleSave = (recipe: Recipe) => {
-    void apiClient("/api/surprise", {
-      method: "POST",
-      body: JSON.stringify({ recipe_id: recipe.id, action: "saved" }),
-    });
+    if (!favorites.includes(recipe.id)) {
+      void apiClient("/api/surprise", {
+        method: "POST",
+        body: JSON.stringify({ recipe_id: recipe.id, action: "saved" }),
+      });
+    }
     onSave?.(recipe.id);
   };
 
@@ -334,7 +336,7 @@ export function Surprise({
                         placeholderClassName="!aspect-auto h-full"
                       />
                     </button>
-                    <div className="absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+                    <div className="absolute right-3 top-3 rounded-full bg-foreground/70 px-3 py-1 text-xs font-semibold text-background backdrop-blur-sm">
                       {match.score}% match
                     </div>
                     {match.isNew && (
@@ -388,12 +390,13 @@ export function Surprise({
                       </button>
                       <button
                         onClick={() => handleSave(r)}
+                        aria-pressed={isFav}
                         className={`rounded-xl border p-2 transition ${
                           isFav
-                            ? "border-red-500 bg-red-50 text-red-500 dark:bg-red-950/30"
+                            ? "border-warm bg-warm/10 text-warm"
                             : "border-border hover:bg-secondary"
                         }`}
-                        aria-label="Save"
+                        aria-label={isFav ? `Remove ${r.name} from favourites` : `Save ${r.name}`}
                       >
                         <Heart className={`size-4 ${isFav ? "fill-current" : ""}`} />
                       </button>
@@ -404,7 +407,6 @@ export function Surprise({
             })}
           </div>
 
-          {/* ACTION BAR */}
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-card p-6">
             <div className="flex items-center gap-3">
               <TrendingUp className="size-5 text-accent" />
@@ -426,7 +428,6 @@ export function Surprise({
         </div>
       )}
 
-      {/* ✅ REDESIGNED: RECENTLY SHOWN SECTION */}
       {history.length > 6 && (
         <div className="mt-4">
           <div className="mb-4 flex items-center justify-between">
@@ -438,7 +439,7 @@ export function Surprise({
               Last {Math.min(history.length, 12)} picks
             </span>
           </div>
-          
+
           <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
             {history.slice(6, 12).map((s) => {
               const r = s.recipe;

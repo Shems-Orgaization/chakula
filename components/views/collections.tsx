@@ -13,6 +13,8 @@ import { Recipe } from "@/lib/recipes";
 import { formatCost } from "@/lib/recommendations";
 import { RecipeImage } from "@/components/recipe-image";
 import { apiClient } from "@/lib/api-client";
+import { useAssistant } from "@/components/assistant-provider";
+import { useEscape } from "@/lib/use-escape";
 
 interface Collection {
   id: string;
@@ -41,15 +43,15 @@ const ICON_OPTIONS = [
   "library", "heart", "party", "utensils", "salad", "beef", "soup", "cake", "pizza", "coffee", "flame", "star",
 ];
 
-const COLOR_OPTIONS = ["orange", "red", "green", "blue", "purple", "yellow"];
+const COLOR_OPTIONS = ["green", "blue", "orange", "red", "purple"];
 
 const COLOR_STYLES: Record<string, { bg: string; icon: string; dot: string }> = {
-  orange: { bg: "bg-orange-50 dark:bg-orange-950/30", icon: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500" },
-  red: { bg: "bg-red-50 dark:bg-red-950/30", icon: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
-  green: { bg: "bg-green-50 dark:bg-green-950/30", icon: "text-green-600 dark:text-green-400", dot: "bg-green-500" },
-  blue: { bg: "bg-blue-50 dark:bg-blue-950/30", icon: "text-blue-600 dark:text-blue-400", dot: "bg-blue-500" },
-  purple: { bg: "bg-purple-50 dark:bg-purple-950/30", icon: "text-purple-600 dark:text-purple-400", dot: "bg-purple-500" },
-  yellow: { bg: "bg-yellow-50 dark:bg-yellow-950/30", icon: "text-yellow-600 dark:text-yellow-400", dot: "bg-yellow-500" },
+  orange: { bg: "bg-highlight/10", icon: "text-highlight", dot: "bg-highlight" },
+  yellow: { bg: "bg-highlight/10", icon: "text-highlight", dot: "bg-highlight" },
+  red: { bg: "bg-warm/10", icon: "text-warm", dot: "bg-warm" },
+  green: { bg: "bg-accent/10", icon: "text-accent", dot: "bg-accent" },
+  blue: { bg: "bg-primary/10", icon: "text-primary", dot: "bg-primary" },
+  purple: { bg: "bg-secondary", icon: "text-foreground", dot: "bg-muted-foreground" },
 };
 
 export function CollectionIcon({ icon, className = "size-5" }: { icon: string; className?: string }) {
@@ -58,6 +60,7 @@ export function CollectionIcon({ icon, className = "size-5" }: { icon: string; c
 }
 
 export function Collections({ open, images = {} }: CollectionsProps) {
+  const { openAssistant } = useAssistant();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -69,21 +72,24 @@ export function Collections({ open, images = {} }: CollectionsProps) {
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newIcon, setNewIcon] = useState("library");
-  const [newColor, setNewColor] = useState("orange");
+  const [newColor, setNewColor] = useState("green");
 
-  const loadCollections = async () => {
-    setLoading(true);
+  const loadCollections = async (silent = false) => {
+    if (!silent) setLoading(true);
     const res = await apiClient("/api/collections");
     if (res.ok) {
       setCollections(res.data.collections ?? []);
     } else {
       toast.error(res.error);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => {
-    loadCollections();
+    void loadCollections();
+    const refresh = () => void loadCollections(true);
+    window.addEventListener("chakula:data-changed", refresh);
+    return () => window.removeEventListener("chakula:data-changed", refresh);
   }, []);
 
   const createCollection = async () => {
@@ -101,12 +107,12 @@ export function Collections({ open, images = {} }: CollectionsProps) {
     });
 
     if (res.ok) {
-      await loadCollections();
+      await loadCollections(true);
       setShowCreate(false);
       setNewName("");
       setNewDescription("");
       setNewIcon("library");
-      setNewColor("orange");
+      setNewColor("green");
       toast.success("Collection created");
     } else {
       toast.error(res.error);
@@ -130,7 +136,7 @@ export function Collections({ open, images = {} }: CollectionsProps) {
     });
 
     if (res.ok) {
-      await loadCollections();
+      await loadCollections(true);
       setEditingCollection(null);
       toast.success("Collection updated");
     } else {
@@ -171,7 +177,7 @@ export function Collections({ open, images = {} }: CollectionsProps) {
     setNewName("");
     setNewDescription("");
     setNewIcon("library");
-    setNewColor("orange");
+    setNewColor("green");
   };
 
   if (openCollectionId) {
@@ -182,7 +188,7 @@ export function Collections({ open, images = {} }: CollectionsProps) {
           collection={collection}
           onBack={() => {
             setOpenCollectionId(null);
-            loadCollections();
+            loadCollections(true);
           }}
           open={open}
           images={images}
@@ -208,13 +214,29 @@ export function Collections({ open, images = {} }: CollectionsProps) {
             Group recipes that belong together — meals, moods, occasions.
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
-        >
-          <FolderPlus className="size-4" />
-          New Collection
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              openAssistant({
+                page: "meals",
+                prompt: collections.length
+                  ? "Suggest one new collection from my favourite and recent meals, with 4 to 8 recipes."
+                  : "Make my first collection from my favourites and recent meals, with 4 to 8 recipes.",
+              })
+            }
+            className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary"
+          >
+            <Sparkles className="size-4" /> Make one with Chakula
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
+          >
+            <FolderPlus className="size-4" />
+            New Collection
+          </button>
+        </div>
       </div>
 
       {collections.length === 0 ? (
@@ -280,7 +302,7 @@ export function Collections({ open, images = {} }: CollectionsProps) {
                         </button>
                         <button
                           onClick={() => deleteCollection(c.id)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition hover:bg-destructive/10"
                         >
                           <Trash2 className="size-3.5" /> Delete
                         </button>
@@ -461,7 +483,7 @@ function CollectionDetail({
                 </button>
                 <button
                   onClick={() => removeItem(r.id)}
-                  className="absolute right-3 top-3 rounded-full bg-background/90 p-2 opacity-100 backdrop-blur transition sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-500 hover:text-white"
+                  className="absolute right-3 top-3 rounded-full bg-background/90 p-2 opacity-100 backdrop-blur transition sm:opacity-0 sm:group-hover:opacity-100 hover:bg-destructive hover:text-white"
                   aria-label="Remove from collection"
                 >
                   <X className="size-4" />
@@ -488,15 +510,21 @@ function CollectionFormModal({
   icon, setIcon, color, setColor, onCancel, onSubmit, saving
 }: any) {
   const style = COLOR_STYLES[color] || COLOR_STYLES.orange;
+  useEscape(onCancel);
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="w-full max-w-lg rounded-t-3xl border border-border bg-card sm:rounded-3xl">
+      <div
+        className="w-full max-w-lg rounded-t-3xl border border-border bg-card sm:rounded-3xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="collection-form-title"
+      >
         <div className="flex items-center justify-between border-b border-border p-5">
-          <h2 className="font-serif text-2xl">
+          <h2 id="collection-form-title" className="font-serif text-2xl">
             {isEdit ? "Edit collection" : "New collection"}
           </h2>
-          <button onClick={onCancel} className="rounded-lg p-2 transition hover:bg-secondary">
+          <button onClick={onCancel} className="rounded-lg p-2 transition hover:bg-secondary" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>

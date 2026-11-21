@@ -5,13 +5,17 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Plus, X, Search, Trash2, ShoppingCart, Loader2,
   CheckCircle2, Circle, Sparkles, Wallet, AlertTriangle,
-  Edit3, Eye, EyeOff, Calendar, ChevronDown, MoreVertical,
-  Archive, Copy, Check, Star
+  Edit3, Eye, EyeOff, ChevronDown, MoreVertical,
+  Archive, Check, Leaf, Drumstick, Milk, Wheat, Flame, Package,
+  Zap, CalendarDays, CalendarRange, Pin, PartyPopper, Lightbulb,
+  type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
-import { MESSAGES } from "@/lib/messages";
 import { localDateStr } from "@/lib/dates";
+import { useAssistant } from "@/components/assistant-provider";
+import { getEstimatedPrice, hasPrice } from "@/lib/ingredient-prices";
+import { useEscape } from "@/lib/use-escape";
 
 interface ShoppingList {
   id: string;
@@ -42,21 +46,26 @@ interface ShoppingProps {
   setItems: (items: string[] | ((prev: string[]) => string[])) => void;
 }
 
-const CATEGORIES = [
-  { key: "all", label: "All", icon: "🛒" },
-  { key: "produce", label: "Produce", icon: "🥬" },
-  { key: "meat", label: "Meat & Fish", icon: "🥩" },
-  { key: "dairy", label: "Dairy", icon: "🥛" },
-  { key: "pantry", label: "Pantry", icon: "🥫" },
-  { key: "spices", label: "Spices", icon: "🧂" },
-  { key: "other", label: "Other", icon: "📦" },
+const CATEGORIES: { key: string; label: string; icon: LucideIcon }[] = [
+  { key: "all", label: "All", icon: ShoppingCart },
+  { key: "produce", label: "Produce", icon: Leaf },
+  { key: "meat", label: "Meat & Fish", icon: Drumstick },
+  { key: "dairy", label: "Dairy", icon: Milk },
+  { key: "pantry", label: "Pantry", icon: Wheat },
+  { key: "spices", label: "Spices", icon: Flame },
+  { key: "other", label: "Other", icon: Package },
 ];
 
 const CATEGORY_ORDER = ["produce", "meat", "dairy", "pantry", "spices", "other"];
 
-const PERIOD_ICONS: Record<string, string> = {
-  today: "⚡", week: "📅", month: "🗓️", custom: "📌", event: "🎉",
+const PERIOD_ICONS: Record<string, LucideIcon> = { 
+  today: Zap, week: CalendarDays, month: CalendarRange, custom: Pin, event: PartyPopper 
 };
+
+function PeriodIcon({ type, className }: { type: string; className?: string }) {
+  const Icon = PERIOD_ICONS[type] ?? Pin;
+  return <Icon className={className} />;
+}
 
 const formatDate = (d: Date) => localDateStr(d);
 const formatDisplay = (dateStr: string) =>
@@ -75,7 +84,9 @@ const isActive = (list: ShoppingList): boolean => {
   return list.start_date === today;
 };
 
-export function Shopping({ items: legacyItems, setItems: setLegacyItems }: ShoppingProps) {
+export function Shopping({ setItems: setLegacyItems }: ShoppingProps) {
+  const { openAssistant } = useAssistant();
+  const [say, setSay] = useState("");
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [items, setItems] = useState<ShoppingItem[]>([]);
@@ -133,8 +144,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     const res = await apiClient(`/api/shopping?list_id=${listId}`);
     if (res.ok) {
       setItems(res.data.items ?? []);
-      const names = (res.data.items ?? []).filter((i: ShoppingItem) => !i.checked).map((i: ShoppingItem) => i.ingredient_name);
-      setLegacyItems(names);
     } else {
       toast.error(res.error);
     }
@@ -153,6 +162,11 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     if (activeListId) loadItems(activeListId);
     else setItems([]);
   }, [activeListId]);
+
+  useEffect(() => {
+    if (loading) return;
+    setLegacyItems(items.filter((i) => !i.checked).map((i) => i.ingredient_name));
+  }, [items, loading, setLegacyItems]);
 
   // ============ CREATE LIST ============
   const createList = async () => {
@@ -202,14 +216,14 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
   const updateList = async (id: string, updates: Partial<ShoppingList>) => {
     const previous = [...lists];
     setLists((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
-    
+
     const res = await apiClient("/api/shopping-lists", {
       method: "PATCH",
       body: JSON.stringify({ id, ...updates }),
     });
 
     if (!res.ok) {
-      setLists(previous); // rollback
+      setLists(previous);
       toast.error(res.error);
     }
   };
@@ -244,7 +258,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     const name = input.trim();
     if (!name || busy || !activeListId) return;
     setBusy(true);
-    
+
     const res = await apiClient("/api/shopping", {
       method: "POST",
       body: JSON.stringify({ ingredient_name: name, list_id: activeListId }),
@@ -271,7 +285,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     });
 
     if (!res.ok) {
-      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: item.checked } : i))); // rollback
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: item.checked } : i)));
       toast.error(res.error);
     }
   };
@@ -284,7 +298,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     const res = await apiClient(`/api/shopping?id=${id}`, { method: "DELETE" });
 
     if (!res.ok) {
-      setItems(previous); // rollback
+      setItems(previous);
       toast.error(res.error);
     }
   };
@@ -293,7 +307,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
   const saveEdit = async (id: string) => {
     const name = editValue.trim();
     if (!name) { setEditingId(null); return; }
-    
+
     const previous = [...items];
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ingredient_name: name } : i)));
     setEditingId(null);
@@ -356,24 +370,10 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     if (!activeListId || !confirm("Remove all checked items?")) return;
     const previous = [...items];
     setItems((prev) => prev.filter((i) => !i.checked));
-    
+
     const res = await apiClient(`/api/shopping?clear_checked=true&list_id=${activeListId}`, { method: "DELETE" });
     if (res.ok) {
       toast.success("Checked items cleared");
-    } else {
-      setItems(previous);
-      toast.error(res.error);
-    }
-  };
-
-  const clearAll = async () => {
-    if (!activeListId || !confirm("Remove ALL items from this list?")) return;
-    const previous = [...items];
-    setItems([]);
-    
-    const res = await apiClient(`/api/shopping?clear_all=true&list_id=${activeListId}`, { method: "DELETE" });
-    if (res.ok) {
-      toast.success("All items cleared");
     } else {
       setItems(previous);
       toast.error(res.error);
@@ -408,7 +408,15 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
   const overBudget = hasBudget && pendingCost > (activeList?.budget ?? 0);
   const remaining = hasBudget ? (activeList?.budget ?? 0) - pendingCost : 0;
 
-  // Category totals
+  const estimateFor = (i: ShoppingItem) =>
+    i.actual_price === null && hasPrice(i.ingredient_name) ? getEstimatedPrice(i.ingredient_name) : null;
+  const estimatedCount = items.filter((i) => !i.checked && estimateFor(i)).length;
+  const estimatedExtra = items.reduce((s, i) => {
+    if (i.checked) return s;
+    const e = estimateFor(i);
+    return e ? s + e.typical * (i.quantity ?? 1) : s;
+  }, 0);
+
   const categoryTotals = useMemo(() => {
     const totals: Record<string, { total: number; count: number; pricedCount: number }> = {};
     for (const item of items) {
@@ -424,7 +432,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     return totals;
   }, [items]);
 
-  // Filtered
   const filtered = useMemo(() => {
     let list = items;
     if (filter === "pending") list = list.filter((i) => !i.checked);
@@ -462,7 +469,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
     );
   }
 
-  // No lists yet
   if (lists.length === 0) {
     return (
       <div className="flex flex-col gap-8">
@@ -487,25 +493,25 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
               onClick={() => { setNewListPeriod("today"); setNewListName("Quick Run"); setShowCreateList(true); }}
               className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold transition hover:border-accent"
             >
-              ⚡ Today
+              <Zap className="mr-1.5 inline size-4" /> Today
             </button>
             <button
               onClick={() => { setNewListPeriod("week"); setNewListName("Weekly Groceries"); setShowCreateList(true); }}
               className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold transition hover:border-accent"
             >
-              📅 This Week
+              <CalendarDays className="mr-1.5 inline size-4" /> This Week
             </button>
             <button
               onClick={() => { setNewListPeriod("month"); setNewListName("Monthly Restock"); setShowCreateList(true); }}
               className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold transition hover:border-accent"
             >
-              🗓️ This Month
+              <CalendarRange className="mr-1.5 inline size-4" /> This Month
             </button>
             <button
               onClick={() => { setNewListPeriod("event"); setNewListName(""); setShowCreateList(true); }}
               className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold transition hover:border-accent"
             >
-              🎉 Event
+              <PartyPopper className="mr-1.5 inline size-4" /> Event
             </button>
           </div>
         </div>
@@ -541,7 +547,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
               className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition hover:border-accent"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <span className="text-xl">{PERIOD_ICONS[activeList?.period_type ?? "custom"]}</span>
+                <PeriodIcon type={activeList?.period_type ?? "custom"} className="size-5 shrink-0 text-accent" />
                 <div className="min-w-0">
                   <p className="font-semibold truncate">{activeList?.name}</p>
                   <p className="text-xs text-muted-foreground">
@@ -574,7 +580,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                         list.id === activeListId ? "bg-accent/5" : ""
                       }`}
                     >
-                      <span className="text-lg">{PERIOD_ICONS[list.period_type]}</span>
+                      <PeriodIcon type={list.period_type} className="size-4 shrink-0 text-accent" />
                       <div className="flex-1 min-w-0">
                         <p className="truncate font-medium">{list.name}</p>
                         <p className="text-xs text-muted-foreground">{getPeriodLabel(list)}</p>
@@ -594,7 +600,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
             )}
           </div>
 
-          {/* List menu */}
           {activeList && (
             <div className="relative">
               <button
@@ -619,7 +624,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                   </button>
                   <button
                     onClick={() => { deleteList(activeList.id); setShowListMenu(false); }}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950"
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-destructive transition hover:bg-destructive/10"
                   >
                     <Trash2 className="size-3.5" /> Delete
                   </button>
@@ -629,7 +634,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
           )}
         </div>
 
-        {/* Rename inline */}
         {editingName && activeList && (
           <div className="mt-3 flex gap-2">
             <input
@@ -693,7 +697,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">
                   {overBudget ? "Over budget" : "Remaining"}
                 </p>
-                <p className={`text-lg font-bold ${overBudget ? "text-red-500" : "text-green-600 dark:text-green-400"}`}>
+                <p className={`text-lg font-bold ${overBudget ? "text-destructive" : "text-accent"}`}>
                   KES {Math.abs(remaining).toLocaleString()}
                 </p>
               </div>
@@ -706,25 +710,25 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                 <span className="text-muted-foreground">
                   Pending: <strong>KES {pendingCost.toLocaleString()}</strong>
                   {unpricedCount > 0 && (
-                    <span className="ml-2 text-yellow-600 dark:text-yellow-500">
+                    <span className="ml-2 text-highlight">
                       · {unpricedCount} unpriced
                     </span>
                   )}
                 </span>
-                <span className={overBudget ? "text-red-500 font-bold" : "text-accent font-bold"}>
+                <span className={overBudget ? "text-destructive font-bold" : "text-accent font-bold"}>
                   {budgetPercent}%
                 </span>
               </div>
               <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-secondary">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    overBudget ? "bg-red-500" : budgetPercent > 75 ? "bg-yellow-500" : "bg-green-500"
+                    overBudget ? "bg-destructive" : budgetPercent > 75 ? "bg-highlight" : "bg-accent"
                   }`}
                   style={{ width: `${Math.min(budgetPercent, 100)}%` }}
                 />
               </div>
               {overBudget && (
-                <div className="mt-3 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                <div className="mt-3 flex items-center gap-2 text-sm text-destructive">
                   <AlertTriangle className="size-4" />
                   <span>Over by KES {Math.abs(remaining).toLocaleString()}</span>
                 </div>
@@ -732,9 +736,17 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
             </div>
           )}
 
+          {estimatedCount > 0 && (
+            <p className="mt-4 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+              Market estimate for {estimatedCount} unpriced item{estimatedCount === 1 ? "" : "s"}:{" "}
+              <strong>≈ KES {estimatedExtra.toLocaleString()}</strong>
+              {hasBudget && ` · total ≈ KES ${(pendingCost + estimatedExtra).toLocaleString()}`}. Based on one market unit (a kg, bunch or piece) per item unless you set a quantity.
+            </p>
+          )}
+
           {hasBudget && !hasPrices && total > 0 && (
             <p className="mt-4 rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-              💡 Tap any item below to enter its price and track your budget.
+              <Lightbulb className="mr-1 inline size-3.5" /> Tap any item below to enter its price and track your budget.
             </p>
           )}
 
@@ -752,11 +764,10 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                   {CATEGORY_ORDER.filter((c) => categoryTotals[c]).map((catKey) => {
                     const info = CATEGORIES.find((c) => c.key === catKey);
                     const { total: catTotal, count, pricedCount } = categoryTotals[catKey];
-                    const pct = pendingCost > 0 ? Math.round((catTotal / pendingCost) * 100) : 0;
                     return (
                       <div key={catKey} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2 text-sm">
                         <span className="flex items-center gap-2">
-                          <span>{info?.icon}</span>
+                          {info && <info.icon className="size-3.5" />}
                           <span className="text-muted-foreground">{info?.label}</span>
                           <span className="text-xs text-muted-foreground">({pricedCount}/{count})</span>
                         </span>
@@ -810,6 +821,35 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
         </div>
       </div>
 
+      {/* AI TIDY-UP */}
+      <form
+        className="flex gap-2 rounded-2xl border border-border bg-card p-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const t = say.trim();
+          if (!t) return;
+          setSay("");
+          openAssistant({ page: "shopping", prompt: `Add these to my shopping list as clean ingredient names: ${t}` });
+        }}
+      >
+        <label htmlFor="shop-ai" className="sr-only">Paste a list for Chakula</label>
+        <input
+          id="shop-ai"
+          value={say}
+          onChange={(e) => setSay(e.target.value)}
+          maxLength={400}
+          placeholder="Paste or type a messy list, Chakula tidies it"
+          className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none focus:border-accent"
+        />
+        <button
+          type="submit"
+          disabled={!say.trim()}
+          className="flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary disabled:opacity-50"
+        >
+          <Sparkles className="size-4" /> Tidy up
+        </button>
+      </form>
+
       {/* FILTERS */}
       {total > 0 && (
         <div className="flex flex-col gap-4">
@@ -850,7 +890,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                     activeCategory === cat.key ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/70"
                   }`}
                 >
-                  <span>{cat.icon}</span>
+                  <cat.icon className="size-3.5" />
                   <span>{cat.label}</span>
                   <span className="text-xs opacity-70">({count})</span>
                 </button>
@@ -886,7 +926,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
               <div key={catKey}>
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                    <span>{catInfo?.icon}</span>
+                    {catInfo && <catInfo.icon className="size-3.5" />}
                     {catInfo?.label}
                     <span className="text-xs font-normal normal-case">({catDone}/{catItems.length})</span>
                   </h3>
@@ -900,6 +940,7 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                       const qty = item.quantity ?? 1;
                       const hasPrice = item.actual_price !== null;
                       const cost = hasPrice ? (item.actual_price ?? 0) * qty : 0;
+                      const est = estimateFor(item);
 
                       return (
                         <li key={item.id} className={`group flex items-center gap-3 px-4 py-3 transition ${item.checked ? "bg-secondary/30" : "hover:bg-secondary/20"}`}>
@@ -966,7 +1007,10 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                             />
                           ) : (
                             <button
-                              onClick={() => { setEditingPriceId(item.id); setEditPriceValue(item.actual_price !== null ? String(item.actual_price) : ""); }}
+                              onClick={() => {
+                                setEditingPriceId(item.id);
+                                setEditPriceValue(item.actual_price !== null ? String(item.actual_price) : est ? String(est.typical) : "");
+                              }}
                               className="shrink-0 text-right"
                             >
                               {hasPrice ? (
@@ -976,13 +1020,13 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
                                 </>
                               ) : (
                                 <span className="flex items-center gap-1 rounded-lg border border-dashed border-border px-2 py-1 text-xs text-muted-foreground transition hover:border-accent hover:text-accent">
-                                  <Edit3 className="size-3" /> Set price
+                                  <Edit3 className="size-3" /> {est ? `≈ KES ${est.typical}/${est.unit}` : "Set price"}
                                 </span>
                               )}
                             </button>
                           )}
 
-                          <button onClick={() => deleteItem(item.id)} className="shrink-0 rounded-lg p-2 text-muted-foreground transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                          <button onClick={() => deleteItem(item.id)} className="shrink-0 rounded-lg p-2 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive">
                             <X className="size-4" />
                           </button>
                         </li>
@@ -996,7 +1040,6 @@ export function Shopping({ items: legacyItems, setItems: setLegacyItems }: Shopp
         </div>
       )}
 
-      {/* CREATE LIST MODAL */}
       {showCreateList && <CreateListModal {...{
         newListName, setNewListName,
         newListPeriod, setNewListPeriod,
@@ -1020,26 +1063,27 @@ function CreateListModal({
   newListBudget, setNewListBudget,
   createList, setShowCreateList, busy
 }: any) {
+  useEscape(() => setShowCreateList(false));
+
   const periods = [
-    { key: "today", label: "Today", icon: "⚡", desc: "Quick shopping run" },
-    { key: "week", label: "This Week", icon: "📅", desc: "Weekly groceries" },
-    { key: "month", label: "This Month", icon: "🗓️", desc: "Monthly restock" },
-    { key: "event", label: "Event", icon: "🎉", desc: "Party or celebration" },
-    { key: "custom", label: "Custom", icon: "📌", desc: "Any date range" },
+    { key: "today", label: "Today", icon: Zap, desc: "Quick shopping run" },
+    { key: "week", label: "This Week", icon: CalendarDays, desc: "Weekly groceries" },
+    { key: "month", label: "This Month", icon: CalendarRange, desc: "Monthly restock" },
+    { key: "event", label: "Event", icon: PartyPopper, desc: "Party or celebration" },
+    { key: "custom", label: "Custom", icon: Pin, desc: "Any date range" },
   ];
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="w-full max-w-lg rounded-t-3xl border border-border bg-card sm:rounded-3xl">
+      <div className="w-full max-w-lg rounded-t-3xl border border-border bg-card sm:rounded-3xl" role="dialog" aria-modal="true" aria-labelledby="new-list-title">
         <div className="flex items-center justify-between border-b border-border p-5">
-          <h2 className="font-serif text-2xl">New shopping list</h2>
-          <button onClick={() => setShowCreateList(false)} className="rounded-lg p-2 transition hover:bg-secondary">
+          <h2 id="new-list-title" className="font-serif text-2xl">New shopping list</h2>
+          <button onClick={() => setShowCreateList(false)} className="rounded-lg p-2 transition hover:bg-secondary" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-5">
-          {/* Name */}
           <label className="block">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">List name</span>
             <input
@@ -1051,29 +1095,30 @@ function CreateListModal({
             />
           </label>
 
-          {/* Period type */}
           <div className="mt-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Period</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              {periods.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => setNewListPeriod(p.key as any)}
-                  className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${
-                    newListPeriod === p.key ? "border-accent bg-accent/5" : "border-border hover:border-accent/50"
-                  }`}
-                >
-                  <span className="text-lg">{p.icon}</span>
-                  <div>
-                    <p className="text-sm font-semibold">{p.label}</p>
-                    <p className="text-xs text-muted-foreground">{p.desc}</p>
-                  </div>
-                </button>
-              ))}
+              {periods.map((p) => {
+                const Icon = p.icon;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => setNewListPeriod(p.key as any)}
+                    className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${
+                      newListPeriod === p.key ? "border-accent bg-accent/5" : "border-border hover:border-accent/50"
+                    }`}
+                  >
+                    <Icon className="mt-0.5 size-5 shrink-0 text-accent" />
+                    <div>
+                      <p className="text-sm font-semibold">{p.label}</p>
+                      <p className="text-xs text-muted-foreground">{p.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Dates */}
           {(newListPeriod === "custom" || newListPeriod === "event") && (
             <div className="mt-5 grid grid-cols-2 gap-3">
               <label>
@@ -1097,7 +1142,6 @@ function CreateListModal({
             </div>
           )}
 
-          {/* Budget */}
           <label className="mt-5 block">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Budget (KES) — optional
@@ -1122,7 +1166,7 @@ function CreateListModal({
           <button
             onClick={createList}
             disabled={!newListName.trim() || busy}
-            className="flex-1 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-foreground transition hover:opacity-90 disabled:opacity-50"
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
             Create List
